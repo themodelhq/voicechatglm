@@ -87,3 +87,17 @@ npm audit --omit=dev --json
 ```
 
 `npm test`, static scans, pg-mem tests, builds, and audits are source/local evidence—not live acceptance of PostgreSQL, Redis, S3-compatible storage, ClamAV, the model endpoint, Netlify, Render, or a browser deployment. See the validation report for the exact evidence label on each result.
+
+## RunPod Serverless model provider (opt-in)
+
+The existing protected HTTP model service remains the default. To route model requests through the RunPod queue-based endpoint, configure the Render API service only with:
+
+- `VOICECHATGLM_PROVIDER=runpod`
+- `RUNPOD_ENDPOINT_ID=<RunPod endpoint ID>`
+- `RUNPOD_API_KEY=<RunPod API key>`
+- `RUNPOD_SERVICE_KEY=<worker service key>` only if the worker enforces it
+- `UPSTREAM_TIMEOUT_MS=240000` (RunPod mode accepts 1,000–360,000 ms, subject to Render's request limit)
+
+The backend calls RunPod's `/runsync` endpoint and maps `output.message` into the existing model response contract. Store RunPod credentials only as Render server-side secrets. Never put them in Netlify browser-visible variables, committed files, request logs, or chat messages. Cold starts can make synchronous chat slow or exceed the hosting request limit. Verify on staging before switching production. Set `VOICECHATGLM_PROVIDER=legacy` to retain the existing private HTTP upstream.
+
+RunPod health checks do not prove that model weights are loaded or that generation works. This source change does not switch production provider settings or perform a live deployment.
