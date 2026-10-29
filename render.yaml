@@ -20,6 +20,14 @@ services:
         sync: false
       - key: VOICECHATGLM_API_KEY
         sync: false
+      - key: VOICECHATGLM_PROVIDER
+        value: legacy
+      - key: RUNPOD_ENDPOINT_ID
+        sync: false
+      - key: RUNPOD_API_KEY
+        sync: false
+      - key: RUNPOD_SERVICE_KEY
+        sync: false
       - key: ALLOWED_ORIGINS
         sync: false
       # Render PostgreSQL private connection string. Provision the database in the same region and assign its internal URL.
