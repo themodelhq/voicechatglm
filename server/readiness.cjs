@@ -11,10 +11,15 @@ const { probeLocalPdfOcr } = require('./pdf-ocr.cjs');
 
 let cached; let expiresAt = 0; let inFlight;
 function modelEndpoint(env) { try { const url = new URL(String(env.VOICECHATGLM_API_URL || '')); return ['http:', 'https:'].includes(url.protocol) && (env.NODE_ENV !== 'production' || url.protocol === 'https:') && !url.username && !url.password ? url.toString().replace(/\/$/, '') : undefined; } catch { return undefined; } }
-function modelConfigured(env) { return Boolean(modelEndpoint(env)); }
+function modelConfigured(env) { if (String(env.VOICECHATGLM_PROVIDER || '').trim().toLowerCase() === 'runpod') return /^[A-Za-z0-9_-]{4,100}$/.test(String(env.RUNPOD_ENDPOINT_ID || '').trim()) && Boolean(String(env.RUNPOD_API_KEY || '').trim()); return Boolean(modelEndpoint(env)); }
 function booleanState(value) { return value ? 'reachable' : 'unreachable'; }
 async function within(operation, milliseconds) { const controller = new AbortController(); let rejectTimeout; const expired = new Promise((_, reject) => { rejectTimeout = reject; }); const timer = setTimeout(() => { controller.abort(); rejectTimeout(new Error('readiness probe timed out.')); }, milliseconds); try { return await Promise.race([Promise.resolve().then(() => operation(controller.signal)), expired]); } finally { clearTimeout(timer); } }
 async function probeModelReady(env, signal) {
+  if (String(env.VOICECHATGLM_PROVIDER || '').trim().toLowerCase() === 'runpod') {
+    const endpointId = String(env.RUNPOD_ENDPOINT_ID || '').trim(); const apiKey = String(env.RUNPOD_API_KEY || '').trim();
+    if (!/^[A-Za-z0-9_-]{4,100}$/.test(endpointId) || !apiKey) return false;
+    try { const result = await fetch(`https://api.runpod.ai/v2/${endpointId}/health`, { method: 'GET', signal, headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' } }); return result.ok; } catch { return false; }
+  }
   const endpoint = modelEndpoint(env); const key = typeof env.VOICECHATGLM_API_KEY === 'string' && env.VOICECHATGLM_API_KEY.trim() ? env.VOICECHATGLM_API_KEY : undefined; if (!endpoint || !key) return false;
   try { const result = await fetch(`${endpoint}/ready`, { method: 'GET', signal, headers: { 'X-API-Key': key, Accept: 'application/json' } }); return result.ok; } catch { return false; }
 }
