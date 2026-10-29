@@ -1,0 +1,14 @@
+import { useEffect } from 'react';
+import type { Conversation, Message } from '../types/domain';
+import { useWorkspace } from './WorkspaceContext';
+import { getConversation, listConversations, type PersistentConversation, type PersistentMessage } from '../services/api/client';
+import { useAuthentication } from '../services/auth/AuthProvider';
+
+function messageFromApi(message: PersistentMessage): Message { const meta = message.metadata || {}; return { id: message.id, role: message.role === 'tool' || message.role === 'system' ? 'assistant' : message.role, content: message.content, createdAt: message.createdAt, status: message.status, ...(Array.isArray(meta.citations) ? { citations: meta.citations as Message['citations'] } : {}), ...(Array.isArray(meta.toolEvents) ? { toolEvents: meta.toolEvents as Message['toolEvents'] } : {}), ...(Array.isArray(meta.artifacts) ? { artifacts: meta.artifacts as Message['artifacts'] } : {}), ...(Array.isArray(meta.notices) ? { notices: meta.notices.filter((item): item is string => typeof item === 'string') } : {}), ...(Array.isArray(meta.sources) ? { sources: meta.sources.filter((item): item is NonNullable<Message['sources']>[number] => Boolean(item && typeof item === 'object' && typeof (item as { filename?: unknown }).filename === 'string' && typeof (item as { location?: unknown }).location === 'string')) } : {}), ...(meta.route && typeof meta.route === 'string' ? { route: meta.route } : {}), ...(meta.error && typeof meta.error === 'string' ? { error: meta.error } : {}), ...(meta.feedback === 'positive' || meta.feedback === 'negative' ? { feedback: meta.feedback } : {}) }; }
+function conversationFromApi(conversation: PersistentConversation): Conversation { return { id: conversation.id, title: conversation.title, createdAt: conversation.createdAt, updatedAt: conversation.updatedAt, messages: (conversation.messages || []).map(messageFromApi), ...(conversation.agentId ? { agentId: conversation.agentId } : {}), model: conversation.model || 'Qwen3-8B', favorite: conversation.favorite, pinned: conversation.pinned, archived: conversation.archived }; }
+/** PostgreSQL is authoritative for signed-in history. The local workspace remains only a responsive cache and agent/preferences store. */
+export function CloudConversationSync() {
+  const auth = useAuthentication(); const { updateConversations } = useWorkspace();
+  useEffect(() => { if (auth.state !== 'authenticated') return; let active = true; void (async () => { try { const summaries = await listConversations({ includeArchived: true, limit: 100 }); const details = await Promise.all(summaries.map(item => getConversation(item.id))); if (active) updateConversations(() => details.map(conversationFromApi)); } catch { /* Existing local cache remains usable when the deployed persistent service is unavailable. */ } })(); return () => { active = false; }; }, [auth.state, auth.user?.id, updateConversations]);
+  return null;
+}
