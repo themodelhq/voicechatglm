@@ -1,0 +1,6 @@
+v1.1.0 integration baseline: VoiceChatGLM_Frontend_v1.0.9.zip
+Baseline archive SHA-256: 6a1891327d7fa32f07646bcd318e91ce2bfaff08756d1cd0bda9115ea44bfab0
+Baseline archive integrity: unzip -t passed; 138 entries.
+Immutable extracted baseline retained during engineering at /home/user/VoiceChatGLM_Frontend_v1.0.9_immutable_baseline.
+Baseline source checks executed before v1.1.0 edits: npm ci passed (296 packages), 26 test files/97 tests passed, typecheck passed, build passed.
+Baseline functional gap recorded: /api/chat directly proxied the model; web search/retrieval and writing persistence/workflow did not exist, and frontend capability status was hardcoded.

@@ -1,0 +1,16 @@
+v1.2.4 immutable source baseline archive:
+06026932cc395ed0a9fe6bc594300da811700779ddbbc2254d52ed19e29a2ddb  VoiceChatGLM_Frontend_v1.2.4.zip
+
+Independent verification before extraction:
+- sha256sum -c VoiceChatGLM_Frontend_v1.2.4.zip.sha256: OK
+- unzip -t VoiceChatGLM_Frontend_v1.2.4.zip: no errors detected
+- Protected baseline: /home/user/baselines/VoiceChatGLM_Frontend_v1.2.4.source.zip (mode 0444)
+- Baseline package version: 1.2.4
+- v1.2.5 worktree was extracted from the verified v1.2.4 archive, not copied from a previously edited tree.
+
+Baseline local execution (before v1.2.5 edits):
+- npm ci: PASS, 318 packages installed; npm emitted a redis peer override warning and whatwg-encoding deprecation warning.
+- Node v20.20.2, npm 10.8.2, Linux 6.1.158+ x86_64.
+- syntax, typecheck, build, config/render validators, source/bundle secret scans: PASS.
+- npm test: 40 test files / 148 tests passed.
+- npm audit and npm audit --omit=dev: 0 reported vulnerabilities.

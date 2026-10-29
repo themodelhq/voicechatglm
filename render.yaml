@@ -1,0 +1,299 @@
+services:
+  # Render Node application backend. Netlify hosts the separate static browser frontend.
+  - type: web
+    name: voicechatglm-api
+    runtime: node
+    plan: starter
+    buildCommand: npm ci --omit=dev
+    startCommand: npm run proxy
+    healthCheckPath: /api/live
+    envVars:
+      - key: NODE_VERSION
+        value: "20.20.2"
+      - key: NODE_ENV
+        value: production
+      - key: VOICECHATGLM_MODEL_ID
+        value: themodelhq/voicechatglm-qwen3-8b
+      - key: VOICECHATGLM_MODEL_REVISION
+        value: "9f25d05035bfda0de9b36dfc5911ddcdb378f3c8"
+      - key: VOICECHATGLM_API_URL
+        sync: false
+      - key: VOICECHATGLM_API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # Render PostgreSQL private connection string. Provision the database in the same region and assign its internal URL.
+      - key: DATABASE_URL
+        sync: false
+      - key: SESSION_TOKEN_HASH_SECRET
+        generateValue: true
+      - key: SESSION_MAX_AGE_DAYS
+        value: "7"
+      - key: SESSION_ACTIVITY_UPDATE_MINUTES
+        value: "15"
+      # Preferred production topology: operator-owned sibling HTTPS frontend/API domains
+      # (or a verified Netlify same-origin proxy). Do not use unrelated default domains
+      # without an explicit cross-site compatibility decision.
+      - key: SESSION_DEPLOYMENT_MODE
+        value: same-site
+      - key: SESSION_COOKIE_SECURE
+        value: "true"
+      - key: SESSION_COOKIE_SAMESITE
+        value: lax
+      - key: PASSWORD_RESET_TTL_MINUTES
+        value: "30"
+      - key: PASSWORD_RESET_EMAIL_WEBHOOK_URL
+        sync: false
+      - key: PASSWORD_RESET_URL_BASE
+        sync: false
+      # Shared Redis protection is technical abuse/backpressure control, not billing or quotas.
+      - key: RATE_LIMIT_REDIS_URL
+        sync: false
+      - key: ABUSE_BURST_REQUESTS_PER_MINUTE
+        value: "60"
+      - key: GLOBAL_ABUSE_BURST_REQUESTS_PER_MINUTE
+        value: "5000"
+      - key: AUTH_BURST_REQUESTS_PER_MINUTE
+        value: "12"
+      - key: AUTH_GLOBAL_BURST_REQUESTS_PER_MINUTE
+        value: "500"
+      - key: UPLOAD_BURST_REQUESTS_PER_MINUTE
+        value: "10"
+      - key: ANALYSIS_BURST_REQUESTS_PER_MINUTE
+        value: "20"
+      - key: MAX_CONCURRENT_REQUESTS_PER_USER
+        value: "2"
+      - key: MAX_CONCURRENT_REQUESTS_GLOBAL
+        value: "100"
+      - key: RATE_LIMIT_LEASE_SECONDS
+        value: "90"
+      - key: REDIS_CONNECT_TIMEOUT_MS
+        value: "1000"
+      - key: REDIS_OPERATION_TIMEOUT_MS
+        value: "2000"
+      # Narrow server-to-server API, free to end users; these are technical abuse/backpressure safeguards.
+      # The user-created bearer key is HMAC-verifiable only and is separate from the protected model credential.
+      - key: PUBLIC_API_ENABLED
+        value: "true"
+      - key: API_KEY_HASH_SECRET
+        generateValue: true
+      - key: API_KEY_MAX_ACTIVE_KEYS
+        value: "50"
+      - key: API_KEY_BURST_REQUESTS_PER_MINUTE
+        value: "60"
+      - key: API_OWNER_BURST_REQUESTS_PER_MINUTE
+        value: "120"
+      - key: API_KEY_MAX_CONCURRENT_REQUESTS
+        value: "2"
+      - key: API_OWNER_MAX_CONCURRENT_REQUESTS
+        value: "4"
+      - key: UPSTREAM_TIMEOUT_MS
+        value: "60000"
+      # Requested activation profile. Startup is fail-closed: it will not accept traffic unless private storage/scanner/database/Redis/model readiness succeeds.
+      - key: FILE_ANALYSIS_ENABLED
+        value: "true"
+      - key: FILE_STORAGE_S3_BUCKET
+        sync: false
+      - key: FILE_STORAGE_S3_REGION
+        sync: false
+      - key: FILE_STORAGE_S3_ENDPOINT
+        sync: false
+      - key: FILE_STORAGE_S3_ACCESS_KEY_ID
+        sync: false
+      - key: FILE_STORAGE_S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: FILE_SCAN_CLAMAV_HOST
+        sync: false
+      - key: FILE_SCAN_CLAMAV_PORT
+        value: "3310"
+      - key: FILE_SCAN_TIMEOUT_MS
+        value: "30000"
+      # Requested activation profile. A missing/invalid server-side Brave credential prevents startup; capability availability remains false until a guarded provider execution succeeds.
+      - key: WEB_SEARCH_ENABLED
+        value: "true"
+      - key: WEB_SEARCH_PROVIDER
+        value: brave
+      - key: WEB_SEARCH_BRAVE_API_KEY
+        sync: false
+      - key: WEB_SEARCH_TIMEOUT_MS
+        value: "8000"
+      - key: WEB_SEARCH_MAX_RESULTS
+        value: "5"
+      - key: WEB_SEARCH_BURST_PER_MINUTE
+        value: "12"
+      # Requested activation profile. Conventional HTML retrieval remains SSRF-protected and is not represented as live-ready before a guarded public-page execution succeeds.
+      - key: WEB_SCRAPING_ENABLED
+        value: "true"
+      - key: WEB_SCRAPING_ROBOTS_POLICY
+        value: respect
+      - key: WEB_SCRAPING_TIMEOUT_MS
+        value: "10000"
+      - key: WEB_SCRAPING_MAX_RESPONSE_BYTES
+        value: "1000000"
+      - key: WEB_SCRAPING_MAX_PAGES_PER_REQUEST
+        value: "3"
+      - key: WEB_SCRAPING_MAX_REDIRECTS
+        value: "3"
+      - key: WEB_SCRAPING_BURST_PER_MINUTE
+        value: "8"
+      # Requested activation profile. Writing calls retain database/model ownership and readiness gates.
+      - key: WRITING_WORKFLOW_ENABLED
+        value: "true"
+      - key: WRITING_MAX_PROJECTS_PER_USER
+        value: "50"
+      - key: WRITING_MAX_CHAPTERS_PER_PROJECT
+        value: "200"
+      - key: WRITING_MAX_NEW_TOKENS
+        value: "1200"
+      # Requested activation profile. Durable paths fail closed on their own authorization and dependency checks; this source archive does not substitute for live acceptance evidence.
+      - key: ARTIFACT_DELIVERY_ENABLED
+        value: "true"
+      - key: ARTIFACT_RETENTION_HOURS
+        value: "720"
+      - key: PERSISTENT_MEMORY_ENABLED
+        value: "true"
+      - key: MEMORY_MAX_RECORDS_PER_USER
+        value: "200"
+      - key: KNOWLEDGE_BASE_ENABLED
+        value: "true"
+      - key: KNOWLEDGE_CHUNK_CHARACTERS
+        value: "1800"
+      - key: KNOWLEDGE_MAX_CHUNKS_PER_SOURCE
+        value: "500"
+      # Package-managed, scanner-gated local OCR/PDF extraction. Startup refuses API traffic if
+      # English image and scanned-PDF smoke probes fail. PDF.js + canvas are locked dependencies,
+      # not system executables; native-only pages stay native and every image-bearing page is OCR'd/reconciled.
+      # This is an activation blueprint, not deployed evidence. Production startup fails closed
+      # unless its engine/language/PDF smoke checks plus protected dependencies succeed.
+      - key: KNOWLEDGE_OCR_PROFILE
+        value: "production"
+      - key: KNOWLEDGE_OCR_ENABLED
+        value: "true"
+      - key: KNOWLEDGE_OCR_PROVIDER
+        value: "tesseract_js"
+      - key: KNOWLEDGE_OCR_LANGUAGE
+        value: "eng"
+      - key: KNOWLEDGE_OCR_TIMEOUT_MS
+        value: "30000"
+      - key: KNOWLEDGE_OCR_MAX_IMAGE_BYTES
+        value: "8388608"
+      - key: KNOWLEDGE_OCR_MAX_IMAGE_PIXELS
+        value: "20000000"
+      - key: KNOWLEDGE_OCR_MAX_OUTPUT_CHARACTERS
+        value: "250000"
+      - key: KNOWLEDGE_OCR_MAX_CONCURRENT_JOBS
+        value: "1"
+      - key: KNOWLEDGE_OCR_PDF_TIMEOUT_MS
+        value: "90000"
+      - key: KNOWLEDGE_OCR_MAX_PDF_PAGES
+        value: "20"
+      - key: KNOWLEDGE_OCR_PDF_RENDER_SCALE
+        value: "1.5"
+      - key: KNOWLEDGE_OCR_MAX_RENDERED_PAGE_PIXELS
+        value: "10000000"
+      - key: KNOWLEDGE_OCR_MAX_TOTAL_RENDERED_PIXELS
+        value: "40000000"
+      - key: KNOWLEDGE_OCR_MAX_PDF_PAGE_POINTS
+        value: "14400"
+      - key: KNOWLEDGE_OCR_MIN_NATIVE_PAGE_CHARACTERS
+        value: "12"
+      - key: KNOWLEDGE_OCR_MAX_PDF_OUTPUT_CHARACTERS
+        value: "500000"
+      - key: DATA_ANALYSIS_ENABLED
+        value: "true"
+      - key: DATA_ANALYSIS_MAX_ROWS
+        value: "10000"
+      - key: CONVERSATION_SHARING_ENABLED
+        value: "true"
+      # Finite links only: server accepts exactly 1h, 24h, 7d, or 30d and snapshots permitted messages.
+      - key: CONVERSATION_SHARE_MAX_HOURS
+        value: "720"
+      - key: CONVERSATION_SHARE_CREATE_BURST_PER_MINUTE
+        value: "12"
+      - key: CONVERSATION_SHARE_PUBLIC_BURST_PER_MINUTE
+        value: "60"
+      - key: TRUST_PROXY_CLIENT_IP
+        value: "false"
+  # Separately hosted private worker for durable knowledge jobs. It has no public route and never
+  # executes customer/model code. Assign the same private database/object-store secrets as the API.
+  - type: worker
+    name: voicechatglm-knowledge-worker
+    runtime: node
+    plan: starter
+    buildCommand: npm ci --omit=dev
+    startCommand: node server/knowledge-worker.cjs
+    envVars:
+      - key: NODE_VERSION
+        value: "20.20.2"
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SSL_MODE
+        value: auto
+      - key: KNOWLEDGE_WORKER_ENABLED
+        value: "true"
+      - key: KNOWLEDGE_WORKER_POLL_MS
+        value: "1500"
+      - key: KNOWLEDGE_WORKER_LEASE_MS
+        value: "60000"
+      - key: KNOWLEDGE_WORKER_MAX_JOBS_PER_OWNER
+        value: "2"
+      - key: KNOWLEDGE_BASE_ENABLED
+        value: "true"
+      - key: KNOWLEDGE_CHUNK_CHARACTERS
+        value: "1800"
+      - key: KNOWLEDGE_MAX_CHUNKS_PER_SOURCE
+        value: "500"
+      - key: FILE_STORAGE_S3_BUCKET
+        sync: false
+      - key: FILE_STORAGE_S3_REGION
+        sync: false
+      - key: FILE_STORAGE_S3_ENDPOINT
+        sync: false
+      - key: FILE_STORAGE_S3_ACCESS_KEY_ID
+        sync: false
+      - key: FILE_STORAGE_S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: FILE_STORAGE_S3_FORCE_PATH_STYLE
+        value: "true"
+      # Package-managed local OCR/PDF extraction: no remote OCR credentials, system renderer,
+      # or runtime language download. The worker accepts only scanner-success-state records.
+      # This is an activation blueprint, not deployed evidence. Production startup fails closed
+      # unless its engine/language/PDF smoke checks plus protected dependencies succeed.
+      - key: KNOWLEDGE_OCR_PROFILE
+        value: "production"
+      - key: KNOWLEDGE_OCR_ENABLED
+        value: "true"
+      - key: KNOWLEDGE_OCR_PROVIDER
+        value: "tesseract_js"
+      - key: KNOWLEDGE_OCR_LANGUAGE
+        value: "eng"
+      - key: KNOWLEDGE_OCR_TIMEOUT_MS
+        value: "30000"
+      - key: KNOWLEDGE_OCR_MAX_IMAGE_BYTES
+        value: "8388608"
+      - key: KNOWLEDGE_OCR_MAX_IMAGE_PIXELS
+        value: "20000000"
+      - key: KNOWLEDGE_OCR_MAX_OUTPUT_CHARACTERS
+        value: "250000"
+      - key: KNOWLEDGE_OCR_MAX_CONCURRENT_JOBS
+        value: "1"
+      - key: KNOWLEDGE_OCR_PDF_TIMEOUT_MS
+        value: "90000"
+      - key: KNOWLEDGE_OCR_MAX_PDF_PAGES
+        value: "20"
+      - key: KNOWLEDGE_OCR_PDF_RENDER_SCALE
+        value: "1.5"
+      - key: KNOWLEDGE_OCR_MAX_RENDERED_PAGE_PIXELS
+        value: "10000000"
+      - key: KNOWLEDGE_OCR_MAX_TOTAL_RENDERED_PIXELS
+        value: "40000000"
+      - key: KNOWLEDGE_OCR_MAX_PDF_PAGE_POINTS
+        value: "14400"
+      - key: KNOWLEDGE_OCR_MIN_NATIVE_PAGE_CHARACTERS
+        value: "12"
+      - key: KNOWLEDGE_OCR_MAX_PDF_OUTPUT_CHARACTERS
+        value: "500000"
+      - key: KNOWLEDGE_SEMANTIC_ENABLED
+        value: "false"

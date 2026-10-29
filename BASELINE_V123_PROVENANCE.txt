@@ -1,0 +1,5 @@
+v1.2.2 immutable baseline (archive checksum):
+57f16a39089f433aaa0455623a233dc916546dca74c38d0989de05e121a7eb57  VoiceChatGLM_Frontend_v1.2.2.zip
+
+Archive integrity:
+unzip -t passed before extraction.

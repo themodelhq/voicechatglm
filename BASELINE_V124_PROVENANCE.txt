@@ -1,0 +1,8 @@
+v1.2.3 immutable source baseline archive:
+c4341b2252a71f3333fc157e23d1ed9c6e48e3ae79baa23631932e6266503511  VoiceChatGLM_Frontend_v1.2.3.zip
+
+Verification before extraction:
+- unzip -t: no errors detected
+- Protected copy: /home/user/baselines/VoiceChatGLM_Frontend_v1.2.3.source.zip (mode 0444)
+- Baseline package version: 1.2.3
+- v1.2.4 worktree was extracted directly from the verified baseline archive.

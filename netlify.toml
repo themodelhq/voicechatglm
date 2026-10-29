@@ -1,0 +1,29 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20.20.2"
+
+# Netlify hosts only the static React application. Configure this public build value in the
+# Netlify dashboard to the exact HTTPS Render API base ending in /api. The supported production
+# pattern is operator-owned sibling HTTPS domains (for example app.<owner-domain> and
+# api.<owner-domain>), not unrelated default hosting domains. Render remains the only API.
+# A same-origin Netlify proxy is not enabled in this release because its real upstream hostname,
+# file-upload size limit, timeout/cancellation behavior and Set-Cookie forwarding must be verified
+# by the owner before use. Required dashboard values are in DEPLOYMENT_NETLIFY.md.
+# VITE_PROXY_BASE_URL=https://api.<owner-domain>/api
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    X-Frame-Options = "DENY"
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https:; font-src 'self' data:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"

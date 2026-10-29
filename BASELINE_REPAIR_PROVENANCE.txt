@@ -1,0 +1,2 @@
+v1.2.0 repair baseline (immutable archive checksum):
+23427fcb1f65b48bc3f2fbbbb79ae9840a098c8053cecb6a55300d15cf91ce25  VoiceChatGLM_Frontend_v1.2.0.zip

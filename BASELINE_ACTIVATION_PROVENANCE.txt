@@ -1,0 +1,2 @@
+v1.2.1 activation baseline (immutable archive checksum):
+68b0cf21114ff4f0f12a8612bcf5c2df61a5b85efcc5a4cae46517fc358bd7cc  VoiceChatGLM_Frontend_v1.2.1.zip
