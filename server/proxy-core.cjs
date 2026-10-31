@@ -117,6 +117,8 @@ function parseGradioCompletion(sse) {
   throw Object.assign(new Error('Hugging Face inference did not complete its queued event.'), { code: 'MODEL_INCOMPLETE' });
 }
 async function callHuggingFaceModel(env, path, init, timeout, signal) {
+  const startedAt = Date.now();
+  const remaining = () => Math.max(1, timeout - (Date.now() - startedAt));
   const cfg = await huggingFaceConfig(env);
   if (cfg.error) throw Object.assign(new Error('Hugging Face Space configuration is unavailable.'), { code: 'MODEL_CONFIGURATION' });
   const headers = { 'X-API-Key': cfg.apiKey, Authorization: `Bearer ${cfg.hfToken}`, Accept: 'application/json' };
@@ -131,7 +133,7 @@ async function callHuggingFaceModel(env, path, init, timeout, signal) {
   const submitted = await fetchWithTimeout(`${cfg.base}/gradio_api/call/generate`, {
     method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify({ data: [source.message, systemPrompt, maxTokens] })
-  }, timeout, signal);
+  }, remaining(), signal);
   const submitText = await submitted.text();
   let submitBody; try { submitBody = submitText ? JSON.parse(submitText) : {}; } catch { submitBody = {}; }
   if (!submitted.ok) return { status: submitted.status, body: { error: 'Hugging Face inference submission was rejected.' } };
@@ -139,7 +141,7 @@ async function callHuggingFaceModel(env, path, init, timeout, signal) {
   if (typeof eventId !== 'string' || !/^[A-Za-z0-9_-]{8,160}$/.test(eventId)) throw Object.assign(new Error('Hugging Face inference did not return a valid event identifier.'), { code: 'MODEL_INVALID_RESPONSE' });
   const result = await fetchWithTimeout(`${cfg.base}/gradio_api/call/generate/${encodeURIComponent(eventId)}`, {
     method: 'GET', headers: { ...headers, Accept: 'text/event-stream' }
-  }, timeout, signal);
+  }, remaining(), signal);
   const sse = await result.text();
   if (!result.ok) return { status: result.status, body: { error: 'Hugging Face inference result retrieval failed.' } };
   return parseGradioCompletion(sse);
