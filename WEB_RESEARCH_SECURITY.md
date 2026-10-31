@@ -48,7 +48,7 @@ Search snippets and page extraction are labelled untrusted evidence. The synthes
 
 Before setting either flag true, record:
 
-1. real Brave API query, returned URLs/snippets and a synthesis response with the same citations;
+1. real Tavily basic-search query, returned URLs/snippets and a synthesis response with the same citations;
 2. provider invalid key, rate-limit and outage behavior;
 3. permitted public HTML extraction, structured product extraction, robots behavior, empty/malformed/oversize content, timeout and bounded redirect behavior;
 4. SSRF negative cases for loopback/private/link-local/metadata/IPv4/IPv6/alternate forms, mixed DNS answers, DNS rebinding and redirect-to-private targets;
