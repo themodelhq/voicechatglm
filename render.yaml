@@ -99,7 +99,7 @@ services:
         value: "4"
       - key: UPSTREAM_TIMEOUT_MS
         value: "60000"
-      # Requested activation profile. Startup is fail-closed: it will not accept traffic unless private storage/scanner/database/Redis/model readiness succeeds.
+      # Requested activation profile. Storage/database/Redis/model readiness remains a startup gate; a sleeping external scanner leaves uploads fail-closed with 503.
       - key: FILE_ANALYSIS_ENABLED
         value: "true"
       - key: FILE_STORAGE_S3_BUCKET
