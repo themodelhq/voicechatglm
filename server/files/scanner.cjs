@@ -70,6 +70,27 @@ async function gradioRequest(configuration, pathname, options, signal) {
   }
 }
 
+async function readResponseText(response, configuration, signal) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      if (error) {
+        response.body?.cancel?.().catch?.(() => undefined);
+        reject(error);
+      } else resolve(value);
+    };
+    const abort = () => finish(Object.assign(new Error('Malware scanner operation was cancelled.'), { code: 'CANCELLED' }));
+    const timer = setTimeout(() => finish(new Error('Malware scanner response timed out.')), configuration.timeoutMs);
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) return abort();
+    response.text().then(value => finish(undefined, value), () => finish(new Error('Malware scanner returned an unreadable response.')));
+  });
+}
+
 function parseGradioEventStream(source) {
   let currentEvent = '';
   let data = [];
@@ -102,8 +123,10 @@ async function callGradioApi(configuration, apiName, data, signal) {
     body: JSON.stringify({ data }),
   }, signal);
   if (!submitted.ok) throw new Error(`Malware scanner submission failed (HTTP ${submitted.status}).`);
+  const submissionText = await readResponseText(submitted, configuration, signal);
+  if (submissionText.length > 16 * 1024) throw new Error('Malware scanner submission response exceeded its limit.');
   let submission;
-  try { submission = await submitted.json(); } catch { throw new Error('Malware scanner returned an invalid submission response.'); }
+  try { submission = JSON.parse(submissionText); } catch { throw new Error('Malware scanner returned an invalid submission response.'); }
   const eventId = submission?.event_id;
   if (typeof eventId !== 'string' || !/^[A-Za-z0-9_-]{8,128}$/.test(eventId)) throw new Error('Malware scanner did not return a valid event ID.');
 
@@ -112,7 +135,7 @@ async function callGradioApi(configuration, apiName, data, signal) {
     headers: { Accept: 'text/event-stream' },
   }, signal);
   if (!completed.ok) throw new Error(`Malware scanner result retrieval failed (HTTP ${completed.status}).`);
-  const body = await completed.text();
+  const body = await readResponseText(completed, configuration, signal);
   if (body.length > 64 * 1024) throw new Error('Malware scanner response exceeded its limit.');
   return parseGradioEventStream(body);
 }
