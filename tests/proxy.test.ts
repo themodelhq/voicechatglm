@@ -12,10 +12,10 @@ describe('Render application boundary', () => {
 describe('Hugging Face Gradio provider contract', () => {
   it('parses only a non-empty Gradio complete event and rejects error/incomplete payloads', () => {
     const { parseGradioCompletion } = require('../server/proxy-core.cjs');
-    expect(parseGradioCompletion('event: complete\\ndata: ["generated answer"]\\n\\n')).toMatchObject({ status: 200, body: { response: 'generated answer', model: 'themodelhq/voicechatglm-qwen3-8b', revision: '9f25d05035bfda0de9b36dfc5911ddcdb378f3c8' } });
-    expect(() => parseGradioCompletion('event: error\\ndata: "failed"\\n\\n')).toThrow();
-    expect(() => parseGradioCompletion('event: complete\\ndata: [""]\\n\\n')).toThrow();
-    expect(() => parseGradioCompletion('event: heartbeat\\ndata: {}\\n\\n')).toThrow();
+    expect(parseGradioCompletion('event: complete\ndata: ["generated answer"]\n\n')).toMatchObject({ status: 200, body: { response: 'generated answer', model: 'themodelhq/voicechatglm-qwen3-8b', revision: '9f25d05035bfda0de9b36dfc5911ddcdb378f3c8' } });
+    expect(() => parseGradioCompletion('event: error\ndata: "failed"\n\n')).toThrow();
+    expect(() => parseGradioCompletion('event: complete\ndata: [""]\n\n')).toThrow();
+    expect(() => parseGradioCompletion('event: heartbeat\ndata: {}\n\n')).toThrow();
   });
   it('requires both the Space key and HF token for the opt-in provider', () => {
     expect(config({ NODE_ENV: 'test', VOICECHATGLM_PROVIDER: 'huggingface_space', VOICECHATGLM_API_URL: 'https://example.hf.space', VOICECHATGLM_API_KEY: 'space-key' }).error).toBeTruthy();
