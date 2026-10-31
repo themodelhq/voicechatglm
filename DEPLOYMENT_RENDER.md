@@ -19,7 +19,7 @@ A `503` readiness result is diagnostic evidence of an unavailable or incomplete 
 | Shared protection | authenticated `RATE_LIMIT_REDIS_URL` and bounded Redis/lease settings |
 | Reset delivery | both reset webhook and reset URL base, or neither |
 | Files when enabled | every `FILE_STORAGE_S3_*` value plus `FILE_SCAN_CLAMAV_HOST`, port, and timeout |
-| Web search when enabled | `WEB_SEARCH_ENABLED=true`, `WEB_SEARCH_PROVIDER=brave`, server-only `WEB_SEARCH_BRAVE_API_KEY`, bounded search limits |
+| Web search when enabled | `WEB_SEARCH_ENABLED=true`, `WEB_SEARCH_PROVIDER=tavily`, server-only `WEB_SEARCH_TAVILY_API_KEY`, bounded search limits |
 | Website retrieval when enabled | `WEB_SCRAPING_ENABLED=true`, SSRF/response/redirect limits and explicit `WEB_SCRAPING_ROBOTS_POLICY` |
 | Writing when enabled | `WRITING_WORKFLOW_ENABLED=true`, applied `002_writing_and_workflows.sql` migration, PostgreSQL and protected-model acceptance evidence |
 | v1.2 durable features when enabled | applied migrations through `008_v129_mixed_pdf_page_provenance.sql`; each of `ARTIFACT_DELIVERY_ENABLED`, `PERSISTENT_MEMORY_ENABLED`, `KNOWLEDGE_BASE_ENABLED`, `DATA_ANALYSIS_ENABLED`, and `CONVERSATION_SHARING_ENABLED` must have its own accepted dependency evidence |
@@ -54,7 +54,7 @@ A configured value is not proof that a provider is private or healthy. This rele
 
 The Blueprint requests `WEB_SEARCH_ENABLED=true`, `WEB_SCRAPING_ENABLED=true`, and `WRITING_WORKFLOW_ENABLED=true`. A build or a true flag is not operational acceptance evidence.
 
-1. For search, create an owner-approved Brave Search API account, enter only the server-side key in Render, verify a real search with returned URLs/snippets, provider error/rate-limit handling, and citation survival through synthesis.
+1. For search, create an owner-approved Tavily account, enter only the server-side `WEB_SEARCH_TAVILY_API_KEY` in Render, verify a real basic search with returned URLs/snippets, invalid-key/rate-limit/credit-exhaustion handling, and citation survival through synthesis. The current free plan advertises 1,000 monthly credits; basic search costs one credit. HTTP 402 stops search without paid fallback. Confirm current provider pricing and terms before activation.
 2. For retrieval, test permitted public conventional HTML, robots policy, response/content limits, redirects/timeouts and every SSRF negative case in [WEB_RESEARCH_SECURITY.md](WEB_RESEARCH_SECURITY.md). Do not enable JavaScript rendering, internal hosts, nonstandard ports, login or paywall bypass through this release.
 3. For writing, apply migrations, create/save/reload a project and outline, generate/revise/resume a chapter, verify cross-user denial/idempotency/cancellation, and export Markdown/text using the actual protected model.
 4. Record owner acceptance evidence, external provider charges/usage policy, and Render outbound resource impact. Only then treat the relevant capability as operational and re-check `/api/capabilities` using an authenticated browser.

@@ -13,7 +13,7 @@ A true Render flag requests the guarded code path; it is not live provider/publi
 
 ## Search provider
 
-The implementation uses the documented Brave Search API only. Required server-side settings are `WEB_SEARCH_ENABLED=true`, `WEB_SEARCH_PROVIDER=brave`, and `WEB_SEARCH_BRAVE_API_KEY`. The subscription token is sent only from Render to `https://api.search.brave.com/res/v1/web/search`; it is never sent to Netlify/browser JavaScript, logged, returned by status APIs, or embedded in citations.
+The implementation uses the documented Tavily Search API only. Required server-side settings are `WEB_SEARCH_ENABLED=true`, `WEB_SEARCH_PROVIDER=tavily`, and `WEB_SEARCH_TAVILY_API_KEY`. The bearer token is sent only from Render to `https://api.tavily.com/search`; it is never sent to Netlify/browser JavaScript, logged, returned by status APIs, or embedded in citations. Requests use basic search, the configured result count, and disable raw page content and Tavily-generated answers. Search result content is untrusted evidence. Tavily's free plan currently advertises 1,000 monthly credits; basic search costs one credit per request. Provider credit exhaustion (HTTP 402) stops search without paid fallback. Recheck current pricing and terms before deployment.
 
 Set bounded `WEB_SEARCH_TIMEOUT_MS`, `WEB_SEARCH_MAX_RESULTS`, `WEB_SEARCH_MAX_RESPONSE_BYTES`, and `WEB_SEARCH_BURST_PER_MINUTE`. Provider 401/403, rate limit, malformed response, timeout, empty result and network failure are distinct non-success outcomes. The user may choose a normal model-only answer after an unavailable search, but the system does not silently say it searched.
 

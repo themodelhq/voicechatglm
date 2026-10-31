@@ -101,3 +101,10 @@ The existing protected HTTP model service remains the default. To route model re
 The backend calls RunPod's `/runsync` endpoint and maps `output.message` into the existing model response contract. Store RunPod credentials only as Render server-side secrets. Never put them in Netlify browser-visible variables, committed files, request logs, or chat messages. Cold starts can make synchronous chat slow or exceed the hosting request limit. Verify on staging before switching production. Set `VOICECHATGLM_PROVIDER=legacy` to retain the existing private HTTP upstream.
 
 RunPod health checks do not prove that model weights are loaded or that generation works. This source change does not switch production provider settings or perform a live deployment.
+
+
+## Tavily web search (free-tier aware)
+
+The server-side search adapter uses the documented Tavily `POST https://api.tavily.com/search` endpoint. Configure the Render API service with `WEB_SEARCH_ENABLED=true`, `WEB_SEARCH_PROVIDER=tavily`, and `WEB_SEARCH_TAVILY_API_KEY` (secret, entered in Render only). Requests use basic search, at most the configured 1–10 results, and do not request raw page content or Tavily-generated answers. The existing synthesis/citation path remains unchanged.
+
+The Tavily free plan currently advertises 1,000 monthly credits, with basic search costing one credit per request. Provider credit exhaustion (HTTP 402) is surfaced as an unavailable-search error; there is no paid fallback, automatic plan upgrade, or alternate-provider charge. Tavily controls the account's remaining credits. Verify current pricing and terms before production activation. See [web research security](WEB_RESEARCH_SECURITY.md) and [Render deployment](DEPLOYMENT_RENDER.md).

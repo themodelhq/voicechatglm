@@ -116,12 +116,12 @@ services:
         value: "3310"
       - key: FILE_SCAN_TIMEOUT_MS
         value: "30000"
-      # Requested activation profile. A missing/invalid server-side Brave credential prevents startup; capability availability remains false until a guarded provider execution succeeds.
+      # Tavily Search API. Keep the API key in Render only; free credits are provider-enforced.
       - key: WEB_SEARCH_ENABLED
         value: "true"
       - key: WEB_SEARCH_PROVIDER
-        value: brave
-      - key: WEB_SEARCH_BRAVE_API_KEY
+        value: tavily
+      - key: WEB_SEARCH_TAVILY_API_KEY
         sync: false
       - key: WEB_SEARCH_TIMEOUT_MS
         value: "8000"
