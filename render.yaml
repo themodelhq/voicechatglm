@@ -112,12 +112,20 @@ services:
         sync: false
       - key: FILE_STORAGE_S3_SECRET_ACCESS_KEY
         sync: false
-      - key: FILE_SCAN_CLAMAV_HOST
+      # Free scanner hosted in the existing Hugging Face ZeroGPU Space.
+      # If the Space sleeps, API startup continues but uploads fail closed with 503.
+      - key: FILE_SCAN_PROVIDER
+        value: huggingface_space
+      - key: FILE_SCAN_API_URL
+        value: https://themodelhq-voicechatglm-inference.hf.space
+      - key: FILE_SCAN_API_KEY
         sync: false
-      - key: FILE_SCAN_CLAMAV_PORT
-        value: "3310"
       - key: FILE_SCAN_TIMEOUT_MS
-        value: "30000"
+        value: "120000"
+      - key: FILE_SCAN_MAX_FILE_BYTES
+        value: "8388608"
+      - key: FILE_ANALYSIS_MAX_PROCESSING_MS
+        value: "120000"
       # Tavily Search API. Keep the API key in Render only; free credits are provider-enforced.
       - key: WEB_SEARCH_ENABLED
         value: "true"
