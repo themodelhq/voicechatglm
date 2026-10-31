@@ -46,7 +46,6 @@ function booleanState(value) { return value ? 'reachable' : 'unreachable'; }
 async function within(operation, milliseconds) { const controller = new AbortController(); let rejectTimeout; const expired = new Promise((_, reject) => { rejectTimeout = reject; }); const timer = setTimeout(() => { controller.abort(); rejectTimeout(new Error('readiness probe timed out.')); }, milliseconds); try { return await Promise.race([Promise.resolve().then(() => operation(controller.signal)), expired]); } finally { clearTimeout(timer); } }
 async function probeModelReady(env, signal) {
   if (String(env.VOICECHATGLM_PROVIDER || '').trim().toLowerCase() === 'huggingface_space') return probeHuggingFaceSpace(env, signal);
-  if (String(env.VOICECHATGLM_PROVIDER || '').trim().toLowerCase() === 'huggingface_space') return probeHuggingFaceSpace(env, signal);
   if (String(env.VOICECHATGLM_PROVIDER || '').trim().toLowerCase() === 'runpod') {
     const endpointId = String(env.RUNPOD_ENDPOINT_ID || '').trim(); const apiKey = String(env.RUNPOD_API_KEY || '').trim();
     if (!/^[A-Za-z0-9_-]{4,100}$/.test(endpointId) || !apiKey) return false;
