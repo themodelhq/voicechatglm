@@ -10,7 +10,7 @@ Set this public build variable in Netlify:
 VITE_PROXY_BASE_URL=/api
 ```
 
-`netlify.toml` proxies `/api/*` to `https://voicechatglm.onrender.com/api/:splat` before the SPA fallback. This keeps the browser's API calls on the frontend origin, so the HttpOnly session cookie is first-party instead of being sent cross-site from a Netlify hostname to an `onrender.com` hostname. The frontend accepts the relative `/api` base only; absolute HTTPS API URLs remain supported for a separately verified custom-domain deployment.
+`netlify.toml` proxies `/api/*` to `https://voicechatglm.onrender.com/api/:splat` before the SPA fallback. This keeps the browser's API calls on the frontend origin, so the HttpOnly session cookie is first-party instead of being sent cross-site from a Netlify hostname to an `onrender.com` hostname. The frontend accepts the relative `/api` base only; absolute HTTPS API URLs remain supported for a separately verified custom-domain deployment. As a safety guard, the default `voicechatglm.onrender.com` hostname is normalized to `/api` in production so a stale or incorrect Netlify build variable cannot silently bypass the first-party proxy.
 
 ## Required Render session settings
 
