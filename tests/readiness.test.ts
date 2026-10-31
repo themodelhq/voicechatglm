@@ -13,3 +13,10 @@ describe('safe dependency readiness report', () => {
     const result = await verifyProductionFileAnalysisDependencies({ NODE_ENV: 'production', FILE_ANALYSIS_ENABLED: 'true' } as NodeJS.ProcessEnv); expect(result.ready).toBe(false); expect(result.missing).toEqual(expect.arrayContaining(['PostgreSQL migrations', 'shared Redis limiter', 'production file-analysis configuration', 'private object storage read/write/delete', 'malware scanner signatures', 'protected model readiness']));
   });
 });
+
+describe('Hugging Face Space readiness credentials', () => {
+  it('does not consider the Space configured without both independent credentials', async () => {
+    const report = await buildReadinessReport({ NODE_ENV: 'production', VOICECHATGLM_PROVIDER: 'huggingface_space', VOICECHATGLM_API_URL: 'https://example.hf.space', VOICECHATGLM_API_KEY: 'space-key', FILE_ANALYSIS_ENABLED: 'false' } as NodeJS.ProcessEnv);
+    expect(report.model).toMatchObject({ endpointConfigured: false, credentialsConfigured: false, readinessProbe: 'not_configured' });
+  });
+});
