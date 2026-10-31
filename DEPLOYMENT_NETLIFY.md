@@ -1,48 +1,46 @@
 # Netlify Frontend Deployment and Browser Session Topology
 
-Netlify hosts the static React build only. It has no database connection, private storage credentials, model key, scanner, or alternate application backend. `netlify.toml` runs `npm run build`, publishes `dist`, and uses an SPA fallback.
+Netlify hosts the static React build and a narrowly scoped same-origin reverse proxy for `/api/*`. The proxy forwards only to the fixed Render API hostname; it does not accept a browser-selected destination. Render remains the only application API and the authority for authentication, authorization, CSRF, database access, and model calls.
 
-## Selected production topology
+## Required Netlify configuration
 
-Use owner-controlled sibling HTTPS domains so browser and API are same-site:
-
-```text
-https://app.<owner-domain>  → Netlify static frontend
-https://api.<owner-domain>/api → Render API
-```
-
-The owner supplies, validates, and certificates the actual domain; this release does not invent one. Set the Netlify public build value to the exact API base:
+Set this public build variable in Netlify:
 
 ```text
-VITE_PROXY_BASE_URL=https://api.<owner-domain>/api
+VITE_PROXY_BASE_URL=/api
 ```
 
-Set Render `ALLOWED_ORIGINS` to the exact frontend origin, for example `https://app.<owner-domain>`, with no trailing path or wildcard. Configure Render `SESSION_DEPLOYMENT_MODE=same-site`, `SESSION_COOKIE_SECURE=true`, and `SESSION_COOKIE_SAMESITE=lax`.
+`netlify.toml` proxies `/api/*` to `https://voicechatglm.onrender.com/api/:splat` before the SPA fallback. This keeps the browser's API calls on the frontend origin, so the HttpOnly session cookie is first-party instead of being sent cross-site from a Netlify hostname to an `onrender.com` hostname. The frontend accepts the relative `/api` base only; absolute HTTPS API URLs remain supported for a separately verified custom-domain deployment.
 
-This keeps cookies host-only at the API host while making sibling HTTPS hosts same-site for `SameSite=Lax`. Browser fetch still uses `credentials: "include"`, so exact credentialed CORS and session-bound CSRF remain required.
+## Required Render session settings
 
-## Default unrelated hosting domains
+Configure the Render API service with:
 
-A default Netlify hostname and a default `onrender.com` hostname are unrelated sites. `SameSite=None; Secure` does **not** guarantee support: privacy settings and browsers that block third-party cookies can prevent session restoration. This release does not certify that arrangement. Do not call it production-ready without live tests in at least two independent browser contexts, including a stricter third-party-cookie setting where available.
+- `SESSION_DEPLOYMENT_MODE=netlify-proxy`
+- `SESSION_COOKIE_SECURE=true`
+- `SESSION_COOKIE_SAMESITE=lax`
+- `ALLOWED_ORIGINS` equal to the exact Netlify site origin (for example `https://your-site.netlify.app`), with no path, trailing slash, or wildcard.
 
-## Netlify proxy option
+Keep the existing PostgreSQL, Redis, model, private storage, and scanner secrets in Render only. Do not put credentials in Netlify build variables.
 
-No Netlify proxy/function is enabled in this release. A same-origin proxy can be evaluated only after the owner supplies the actual Render target and validates all of the following in the deployed Netlify product version:
+## Proxy acceptance checks
 
-- route allowlist restricted to intended `/api/*` paths; no user-controlled upstream URL;
-- request method/body forwarding, credential cookie forwarding, `Set-Cookie` preservation, status preservation, and no public caching of authentication, reset, file, or session responses;
-- authenticated upload body-size limits, analysis timeouts, disconnect/cancellation propagation, and response buffering behavior;
-- backend remains the sole authentication/authorization authority.
+The proxy rule is deliberately limited to `/api/*`. Before treating the deployment as production-ready, verify in the deployed Netlify site:
 
-Do not add a generic proxy redirect or proxy an arbitrary destination merely to work around third-party-cookie restrictions. If an owner verifies such a proxy, use `SESSION_DEPLOYMENT_MODE=netlify-proxy` and retain host-only secure cookies, exact origin validation, CSRF headers, and Render authorization.
+1. Login and registration responses preserve both session and CSRF `Set-Cookie` headers.
+2. The browser stores the session cookie as HttpOnly, Secure, SameSite=Lax, with the API path.
+3. A refresh restores the signed-in session through `GET /api/auth/me`.
+4. Chat, file upload, file analysis, logout, and CSRF rejection work through the same-origin `/api` path.
+5. Uploads at the application's configured maximum size and long-running requests survive the Netlify proxy's request/response limits and timeout behavior.
+6. Two separate browser contexts can log in independently and a CSRF failure does not incorrectly clear an otherwise valid session.
+
+If Netlify's proxy limits or behavior do not pass these checks, use owner-controlled sibling HTTPS domains instead: frontend on `app.<owner-domain>`, API on `api.<owner-domain>`, and set `VITE_PROXY_BASE_URL=https://api.<owner-domain>/api` with `SESSION_DEPLOYMENT_MODE=same-site`.
 
 ## Deployment order
 
-1. Provision operator-owned frontend/API domains and TLS, or document why the deployment remains staging-only.
-2. Provision Render PostgreSQL, Redis, model credentials, and a strong session hash secret.
-3. Deploy Render and record `/api/live`, `/api/readiness`, and `/api/ready` results.
-4. Set Netlify `VITE_PROXY_BASE_URL` to the API base; set exact Render `ALLOWED_ORIGINS`; deploy frontend.
-5. In two separate browser contexts test registration, login, refresh/session restoration, protected requests, CSRF mismatch, logout, logout-all, reset delivery/completion, and browser restart according to the seven-day absolute-expiry policy.
-6. Only after private storage/scanner/model integration tests pass, enable production file analysis.
+1. Set the Netlify build variable to `VITE_PROXY_BASE_URL=/api`.
+2. Deploy the Render API with the session settings above and the exact Netlify origin in `ALLOWED_ORIGINS`.
+3. Deploy Netlify so the `/api/*` proxy rule and relative API base are active.
+4. Run all proxy acceptance checks above, including file uploads and analysis, before enabling production file analysis for users.
 
-`npx --yes netlify-cli@17.37.2 build --offline` validates static packaging only. It does not deploy Netlify, test browser cookies, preserve proxy cookies, or reach Render.
+The static build succeeding is not live acceptance evidence. Verify cookies, session restoration, CSRF, uploads, and analysis in the deployed browser.
