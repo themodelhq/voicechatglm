@@ -124,6 +124,7 @@ async function probeScanner(configuration, signal) {
       || !Number.isInteger(result.max_file_bytes) || result.max_file_bytes < 1) {
       throw new Error('Malware scanner readiness probe returned an invalid response.');
     }
+    if (configuration.maxFileBytes > result.max_file_bytes) throw new Error('Render scanner file-size limit exceeds the Hugging Face Space limit.');
     return { signatures: 'available', maxFileBytes: result.max_file_bytes };
   }
   const ping = await scannerCommand(configuration, 'PING', signal); if (!/\bPONG\b/.test(ping)) throw new Error('Malware scanner readiness probe returned an invalid PING response.');
