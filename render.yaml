@@ -41,11 +41,9 @@ services:
         value: "7"
       - key: SESSION_ACTIVITY_UPDATE_MINUTES
         value: "15"
-      # Preferred production topology: operator-owned sibling HTTPS frontend/API domains
-      # (or a verified Netlify same-origin proxy). Do not use unrelated default domains
-      # without an explicit cross-site compatibility decision.
+      # Netlify proxies /api/* to this fixed Render service so session cookies remain first-party.
       - key: SESSION_DEPLOYMENT_MODE
-        value: same-site
+        value: netlify-proxy
       - key: SESSION_COOKIE_SECURE
         value: "true"
       - key: SESSION_COOKIE_SAMESITE
