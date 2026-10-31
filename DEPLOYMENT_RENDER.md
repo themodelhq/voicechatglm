@@ -18,7 +18,7 @@ A `503` readiness result is diagnostic evidence of an unavailable or incomplete 
 | Session topology | `SESSION_DEPLOYMENT_MODE=same-site`, `SESSION_COOKIE_SECURE=true`, `SESSION_COOKIE_SAMESITE=lax` for sibling HTTPS owner domains |
 | Shared protection | authenticated `RATE_LIMIT_REDIS_URL` and bounded Redis/lease settings |
 | Reset delivery | both reset webhook and reset URL base, or neither |
-| Files when enabled | every `FILE_STORAGE_S3_*` value plus `FILE_SCAN_CLAMAV_HOST`, port, and timeout |
+| Files when enabled | every `FILE_STORAGE_S3_*` value plus `FILE_SCAN_PROVIDER=huggingface_space`, `FILE_SCAN_API_URL`, `FILE_SCAN_API_KEY`, timeout and size limits |
 | Web search when enabled | `WEB_SEARCH_ENABLED=true`, `WEB_SEARCH_PROVIDER=tavily`, server-only `WEB_SEARCH_TAVILY_API_KEY`, bounded search limits |
 | Website retrieval when enabled | `WEB_SCRAPING_ENABLED=true`, SSRF/response/redirect limits and explicit `WEB_SCRAPING_ROBOTS_POLICY` |
 | Writing when enabled | `WRITING_WORKFLOW_ENABLED=true`, applied `002_writing_and_workflows.sql` migration, PostgreSQL and protected-model acceptance evidence |
@@ -41,7 +41,7 @@ The Blueprint is an activation profile and sets `FILE_ANALYSIS_ENABLED=true`; de
 1. Configure Render PostgreSQL and verify migrations/backup/restore.
 2. Configure authenticated shared Redis and verify multi-instance/failure behavior.
 3. Configure a private S3-compatible bucket, TLS endpoint, and least-privilege service credentials permitted to `HeadBucket` and to put/get/delete a fresh canary below `FILE_STORAGE_S3_PREFIX`; do not grant public ACL/list access.
-4. Configure private ClamAV and verify `PING`, `VERSION` with a current reportable signature database, plus actual clean/infected scans.
+4. Configure the authenticated Hugging Face Space scanner (`FILE_SCAN_PROVIDER=huggingface_space`) and verify the Gradio `scanner_health` and `scan_file` queue APIs with actual clean/infected scans. The Space may sleep on its free allocation; API startup can continue while scanner-dependent uploads return 503. Never bypass scanning.
 5. Configure exact frontend origin, protected model endpoint/key, and session tests.
 6. Deploy only after entering real operator-supplied settings; inspect `/api/readiness` without recording secrets.
 7. Treat successful startup and `/api/readiness` verified PostgreSQL/migrations, Redis, storage read/write/delete, scanner signatures, and protected model readiness as necessary—but not sufficient—evidence.
@@ -81,3 +81,20 @@ Maintenance deletes expired session/reset/file metadata, expired share metadata/
 For rollback, retain the prior verified release and database backup. First set `FILE_ANALYSIS_ENABLED=false` in the target Render environment and confirm the candidate is not accepting file-analysis work; do not roll back while a production analysis job is in flight. Roll back the Render image/static frontend together if the browser API contract changed; do not roll back only the frontend while retaining incompatible cookies. v1.0.8 added a paired anti-CSRF cookie, so older v1.0.7 sessions are intentionally reauthenticated on restore. v1.1.0 applies an additive writing/workflow migration; do not roll it back by dropping tables during an application rollback. Released analysis/writing objects remain private and should be removed using owner-authorized delete/expiry processes, not by granting bucket access. If rolling back to v1.0.7, clear both `voicechatglm_session` and `voicechatglm_csrf` cookies through the API path; otherwise preserve the paired cookie contract. Deploy the prior release, then test register/login/logout/CSRF and verify `/api/readiness` before reopening traffic.
 
 No Render service, PostgreSQL, Redis, bucket, scanner, mail webhook, custom domain, or protected model credential was supplied; no live deploy/migration/readiness result is claimed.
+
+
+## Free Hugging Face ClamAV scanner
+
+The API can reuse the existing `themodelhq/voicechatglm-inference` Space for file scanning; no separate Render scanner service is provisioned. Configure the Render API service with:
+
+- `FILE_SCAN_PROVIDER=huggingface_space`
+- `FILE_SCAN_API_URL=https://themodelhq-voicechatglm-inference.hf.space`
+- `FILE_SCAN_API_KEY`: a strong secret matching the Space's `FILE_SCAN_API_KEY`
+- `FILE_SCAN_TIMEOUT_MS=120000`
+- `FILE_SCAN_MAX_FILE_BYTES=8388608`
+
+The Node scanner submits a base64 file payload to `/gradio_api/call/scan_file`, then reads the matching SSE result. Readiness calls `/gradio_api/call/scanner_health`. Both calls send `X-API-Key`; do not place this key in browser code or source control.
+
+The existing quarantine sequence remains mandatory: upload to private quarantine, scan, extract/redact, write private artifacts, then promote. Scanner errors, malformed responses, timeouts, and Space sleep are failures, never clean results. The API may start when only the external scanner is unreachable; uploads then return 503 until it is ready. Keep the per-file limit at or below 8 MiB unless the Space and Render limits are deliberately raised together and tested.
+
+The free Space is not guaranteed always-on and shares compute with model inference. This design adds no separate scanner hosting service, but does not make the existing Render plan or object storage free.
