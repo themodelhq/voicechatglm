@@ -1,6 +1,6 @@
 # Render API, PostgreSQL, Readiness, and Rollback
 
-`render.yaml` declares the Node application. It runs `npm ci --omit=dev`, then `npm run proxy`. In production the process validates configuration, acquires the PostgreSQL migration advisory lock, applies pending migrations, starts maintenance, then listens.
+`render.yaml` declares the Node application. It runs `npm ci --omit=dev`, then `npm run proxy`. In production the process validates configuration, acquires the PostgreSQL migration advisory lock, applies pending migrations, verifies mandatory dependencies, starts maintenance, then listens. If the configured Hugging Face scanner is temporarily asleep or unreachable, the API may still start; scanner-dependent uploads remain fail-closed with HTTP 503.
 
 - `/api/live` is process liveness only.
 - `/api/ready` checks PostgreSQL, Redis, and the fixed upstream `/ready` endpoint without model generation.
@@ -36,7 +36,7 @@ Render accepts credentialed browser requests only from exact `ALLOWED_ORIGINS`; 
 
 ## File-analysis gate and readiness procedure
 
-The Blueprint is an activation profile and sets `FILE_ANALYSIS_ENABLED=true`; deployment still refuses to start unless the following real prerequisites succeed:
+The Blueprint is an activation profile and sets `FILE_ANALYSIS_ENABLED=true`; deployment refuses to start unless the following non-scanner prerequisites succeed. The scanner endpoint and key must be configured; scanner reachability is checked for readiness and every upload, but a sleeping Space does not prevent the rest of the API from starting:
 
 1. Configure Render PostgreSQL and verify migrations/backup/restore.
 2. Configure authenticated shared Redis and verify multi-instance/failure behavior.
