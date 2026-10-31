@@ -24,8 +24,6 @@ services:
         value: legacy
       - key: HF_TOKEN
         sync: false
-      - key: HF_TOKEN
-        sync: false
       - key: RUNPOD_ENDPOINT_ID
         sync: false
       - key: RUNPOD_API_KEY
