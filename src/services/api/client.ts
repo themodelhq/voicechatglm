@@ -10,7 +10,20 @@ export interface ApiStatus { ok: boolean; detail?: string; }
 export interface SessionUser { id: string; email: string; displayName?: string; emailVerified?: boolean; createdAt?: string; }
 export interface AuthSessionResponse { user: SessionUser; csrfToken: string; }
 const configuredBase = import.meta.env.VITE_PROXY_BASE_URL?.trim();
-function hostedBase(value: string | undefined, fallback: string): { base: string; error?: string } { if (!value) return import.meta.env.PROD ? { base: fallback, error: 'The hosted API base is not configured for this deployment.' } : { base: fallback }; const configured = value.trim(); if (/^\/api(?:\/|$)/.test(configured)) return { base: configured.replace(/\/$/, '') }; try { const url = new URL(configured); if (import.meta.env.PROD && url.protocol !== 'https:') return { base: fallback, error: 'The hosted API URL must use HTTPS.' }; // The default Netlify deployment must use its same-origin /api proxy. A direct onrender.com URL bypasses first-party cookies and breaks session restoration. Custom HTTPS API domains remain supported. if (import.meta.env.PROD && url.hostname === 'voicechatglm.onrender.com') return { base: '/api' }; return { base: url.toString().replace(/\/$/, '') }; } catch { return { base: fallback, error: 'The hosted API URL is invalid.' }; } }
+function hostedBase(value: string | undefined, fallback: string): { base: string; error?: string } {
+  // Netlify must always use its same-origin proxy. Do not trust a stale or misconfigured
+  // VITE_PROXY_BASE_URL to send browser sessions directly to the cross-site Render host.
+  if (import.meta.env.PROD && typeof window !== 'undefined' && window.location.hostname.endsWith('.netlify.app')) return { base: '/api' };
+  if (!value) return import.meta.env.PROD ? { base: fallback, error: 'The hosted API base is not configured for this deployment.' } : { base: fallback };
+  const configured = value.trim();
+  if (/^\/api(?:\/|$)/.test(configured)) return { base: configured.replace(/\/$/, '') };
+  try {
+    const url = new URL(configured);
+    if (import.meta.env.PROD && url.protocol !== 'https:') return { base: fallback, error: 'The hosted API URL must use HTTPS.' };
+    if (import.meta.env.PROD && url.hostname.endsWith('.onrender.com')) return { base: '/api' };
+    return { base: url.toString().replace(/\/$/, '') };
+  } catch { return { base: fallback, error: 'The hosted API URL is invalid.' }; }
+}
 const proxyTarget = hostedBase(configuredBase, '/api'); const base = proxyTarget.base; const fileBase = base; const devSessionKey = 'voicechatglm.file-development-session.v1';
 export type CsrfTokenProvider = () => string | undefined;
 export type AuthenticationFailureHandler = (status: 401) => void;
