@@ -19,9 +19,10 @@ process.once('SIGTERM', () => { void shutdown(); }); process.once('SIGINT', () =
 async function start() {
   // In production migrations run under a PostgreSQL advisory lock before accepting traffic.
   if (production) { startupStage = 'PostgreSQL migrations'; await runMigrations(); }
-  // Enabling production file analysis is an explicit deployment decision. Refuse to
-  // accept traffic when its real private storage, scanner, Redis, database/migrations,
-  // and protected-model readiness checks have not all succeeded.
+  // Enabling production file analysis is an explicit deployment decision. Require
+  // database/migrations, Redis, private storage, OCR, and model readiness before
+  // accepting traffic. The external scanner is also probed, but may sleep while idle;
+  // the upload route enforces scanner readiness and fails closed with 503.
   if (production && (process.env.FILE_ANALYSIS_ENABLED === 'true' || process.env.KNOWLEDGE_OCR_ENABLED === 'true')) {
     startupStage = 'production dependency readiness checks';
     const verification = await verifyProductionFileAnalysisDependencies();
