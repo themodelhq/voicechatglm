@@ -11,10 +11,27 @@ const { probeLocalPdfOcr } = require('./pdf-ocr.cjs');
 
 let cached; let expiresAt = 0; let inFlight;
 function modelEndpoint(env) { try { const url = new URL(String(env.VOICECHATGLM_API_URL || '')); return ['http:', 'https:'].includes(url.protocol) && (env.NODE_ENV !== 'production' || url.protocol === 'https:') && !url.username && !url.password ? url.toString().replace(/\/$/, '') : undefined; } catch { return undefined; } }
-function modelConfigured(env) { if (String(env.VOICECHATGLM_PROVIDER || '').trim().toLowerCase() === 'runpod') return /^[A-Za-z0-9_-]{4,100}$/.test(String(env.RUNPOD_ENDPOINT_ID || '').trim()) && Boolean(String(env.RUNPOD_API_KEY || '').trim()); return Boolean(modelEndpoint(env)); }
+function huggingFaceSpaceConfig(env) {
+  const endpoint = modelEndpoint(env);
+  const key = typeof env.VOICECHATGLM_API_KEY === 'string' ? env.VOICECHATGLM_API_KEY.trim() : '';
+  const token = typeof env.HF_TOKEN === 'string' ? env.HF_TOKEN.trim() : '';
+  return { configured: Boolean(endpoint && key && token) };
+}
+async function probeHuggingFaceSpace(env, signal) {
+  const endpoint = modelEndpoint(env);
+  const key = String(env.VOICECHATGLM_API_KEY || '').trim();
+  const token = String(env.HF_TOKEN || '').trim();
+  if (!endpoint || !key || !token) return false;
+  try {
+    const response = await fetch(endpoint, { method: 'GET', signal, headers: { 'X-API-Key': key, Authorization: `Bearer ${token}`, Accept: 'text/html' } });
+    return response.ok;
+  } catch { return false; }
+}
+function modelConfigured(env) { if (String(env.VOICECHATGLM_PROVIDER || '').trim().toLowerCase() === 'huggingface_space') return huggingFaceSpaceConfig(env).configured; if (String(env.VOICECHATGLM_PROVIDER || '').trim().toLowerCase() === 'runpod') return /^[A-Za-z0-9_-]{4,100}$/.test(String(env.RUNPOD_ENDPOINT_ID || '').trim()) && Boolean(String(env.RUNPOD_API_KEY || '').trim()); return Boolean(modelEndpoint(env)); }
 function booleanState(value) { return value ? 'reachable' : 'unreachable'; }
 async function within(operation, milliseconds) { const controller = new AbortController(); let rejectTimeout; const expired = new Promise((_, reject) => { rejectTimeout = reject; }); const timer = setTimeout(() => { controller.abort(); rejectTimeout(new Error('readiness probe timed out.')); }, milliseconds); try { return await Promise.race([Promise.resolve().then(() => operation(controller.signal)), expired]); } finally { clearTimeout(timer); } }
 async function probeModelReady(env, signal) {
+  if (String(env.VOICECHATGLM_PROVIDER || '').trim().toLowerCase() === 'huggingface_space') return probeHuggingFaceSpace(env, signal);
   if (String(env.VOICECHATGLM_PROVIDER || '').trim().toLowerCase() === 'runpod') {
     const endpointId = String(env.RUNPOD_ENDPOINT_ID || '').trim(); const apiKey = String(env.RUNPOD_API_KEY || '').trim();
     if (!/^[A-Za-z0-9_-]{4,100}$/.test(endpointId) || !apiKey) return false;
@@ -24,7 +41,7 @@ async function probeModelReady(env, signal) {
   try { const result = await fetch(`${endpoint}/ready`, { method: 'GET', signal, headers: { 'X-API-Key': key, Accept: 'application/json' } }); return result.ok; } catch { return false; }
 }
 async function buildReadinessReport(env = process.env) {
-  const database = databaseConfig(env); const limiter = rateLimitConfig(env); const fileFeature = fileAnalysisConfig(env); const storage = objectStorageConfig(env); const scanner = scannerConfig(env); const ocr = ocrConfig(env); const endpointConfigured = modelConfigured(env); const credentialsConfigured = Boolean(typeof env.VOICECHATGLM_API_KEY === 'string' && env.VOICECHATGLM_API_KEY.trim());
+  const database = databaseConfig(env); const limiter = rateLimitConfig(env); const fileFeature = fileAnalysisConfig(env); const storage = objectStorageConfig(env); const scanner = scannerConfig(env); const ocr = ocrConfig(env); const endpointConfigured = modelConfigured(env); const provider = String(env.VOICECHATGLM_PROVIDER || 'legacy').trim().toLowerCase(); const credentialsConfigured = provider === 'huggingface_space' ? huggingFaceSpaceConfig(env).configured : Boolean(typeof env.VOICECHATGLM_API_KEY === 'string' && env.VOICECHATGLM_API_KEY.trim());
   let databaseReachable = false; let migrationsComplete = false;
   if (!database.error) { databaseReachable = await databaseReady(env); if (databaseReachable) migrationsComplete = Boolean((await migrationStatus()).ready); }
   let limiterReachable = false; if (!limiter.error) limiterReachable = await limiterAvailable(limiterFor(limiter));
