@@ -25,7 +25,14 @@ async function start() {
   if (production && (process.env.FILE_ANALYSIS_ENABLED === 'true' || process.env.KNOWLEDGE_OCR_ENABLED === 'true')) {
     startupStage = 'production dependency readiness checks';
     const verification = await verifyProductionFileAnalysisDependencies();
-    if (!verification.ready) throw new Error(`Production dependencies are not ready: ${verification.missing.join(', ')}.`);
+    // The scanner is an external free Hugging Face Space and may sleep while idle.
+    // Permit the API to start when only scanner reachability is missing; uploads
+    // still call scanBuffer and fail closed with 503 until the scanner is healthy.
+    const blockingMissing = verification.missing.filter(item => item !== 'malware scanner signatures');
+    if (blockingMissing.length) throw new Error(`Production dependencies are not ready: ${blockingMissing.join(', ')}.`);
+    if (verification.missing.includes('malware scanner signatures')) {
+      console.warn('Malware scanner is not currently reachable. File uploads will remain unavailable until the scanner is ready.');
+    }
   }
   if (production) { startupStage = 'maintenance initialization'; stopMaintenance = startMaintenance(); }
   startupStage = 'HTTP port binding';
