@@ -5,14 +5,16 @@
 [build.environment]
   NODE_VERSION = "20.20.2"
 
-# Netlify hosts only the static React application. Configure this public build value in the
-# Netlify dashboard to the exact HTTPS Render API base ending in /api. The supported production
-# pattern is operator-owned sibling HTTPS domains (for example app.<owner-domain> and
-# api.<owner-domain>), not unrelated default hosting domains. Render remains the only API.
-# A same-origin Netlify proxy is not enabled in this release because its real upstream hostname,
-# file-upload size limit, timeout/cancellation behavior and Set-Cookie forwarding must be verified
-# by the owner before use. Required dashboard values are in DEPLOYMENT_NETLIFY.md.
-# VITE_PROXY_BASE_URL=https://api.<owner-domain>/api
+# Netlify serves the React application and proxies /api/* to the single Render API.
+# Keeping browser requests same-origin allows the HttpOnly session and CSRF cookies to
+# remain first-party even on the default Netlify hostname. Render remains the only API.
+# The proxy target is intentionally fixed; never accept a browser-supplied upstream URL.
+# Set VITE_PROXY_BASE_URL=/api in Netlify's build environment.
+[[redirects]]
+  from = "/api/*"
+  to = "https://voicechatglm.onrender.com/api/:splat"
+  status = 200
+  force = true
 
 [[redirects]]
   from = "/*"
