@@ -34,11 +34,11 @@ describe('Hugging Face Gradio ClamAV scanner', () => {
         res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ event_id: 'scan-event-123' })); return;
       }
       if (req.method === 'GET' && req.url === '/gradio_api/call/scanner_health/health-event-123') {
-        res.writeHead(200, { 'Content-Type': 'text/event-stream' }); res.end('event: complete\\ndata: [{"status":"ready","engine":"clamav","max_file_bytes":8388608}]\\n\\n'); return;
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' }); res.end('event: complete\ndata: [{"status":"ready","engine":"clamav","max_file_bytes":8388608}]\n\n'); return;
       }
       if (req.method === 'GET' && req.url === '/gradio_api/call/scan_file/scan-event-123') {
         res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-        res.end(`event: complete\\ndata: [${JSON.stringify({ status: infected ? 'infected' : 'clean', infected, engine: 'clamav' })}]\\n\\n`); return;
+        res.end(`event: complete\ndata: [${JSON.stringify({ status: infected ? 'infected' : 'clean', infected, engine: 'clamav' })}]\n\n`); return;
       }
       res.writeHead(404); res.end();
     });
@@ -68,7 +68,7 @@ describe('Hugging Face Gradio ClamAV scanner', () => {
     const server = createHttpServer(async (req, res) => {
       for await (const _chunk of req) { /* consume request */ }
       if (req.method === 'POST') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ event_id: 'scan-event-123' })); return; }
-      res.writeHead(200, { 'Content-Type': 'text/event-stream' }); res.end('event: error\\ndata: null\\n\\n');
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' }); res.end('event: error\ndata: null\n\n');
     });
     server.listen(0, '127.0.0.1'); await once(server, 'listening');
     const address = server.address();
