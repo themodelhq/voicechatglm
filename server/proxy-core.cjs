@@ -36,18 +36,18 @@ function configuredOrigins(env, production) { const values = String(env.ALLOWED_
 function modelEndpoint(env, production) { const raw = typeof env.VOICECHATGLM_API_URL === 'string' ? env.VOICECHATGLM_API_URL.trim() : ''; if (!raw) return { error: 'model endpoint' }; try { const url = new URL(raw); if (!['http:', 'https:'].includes(url.protocol) || production && url.protocol !== 'https:' || url.username || url.password) throw new Error(); return { url: url.toString().replace(/\/$/, '') }; } catch { return { error: 'model endpoint' }; } }
 function trustedProxyConfigurationError(env) { if (env.TRUST_PROXY_CLIENT_IP !== 'true') return undefined; const header = String(env.TRUSTED_PROXY_CLIENT_IP_HEADER || '').toLowerCase(); const rawPeers = String(env.TRUSTED_PROXY_PEERS || '').split(',').map(value => value.trim()).filter(Boolean); const peers = rawPeers.map(validIp); return rawPeers.length && peers.every(Boolean) && ['x-forwarded-for', 'x-nf-client-connection-ip'].includes(header) ? undefined : 'trusted-proxy settings'; }
 function config(env = process.env) {
-  const production = env.NODE_ENV === 'production'; const runpod = runPodConfig(env); const endpoint = modelEndpoint(env, production);
+  const production = env.NODE_ENV === 'production'; const provider = String(env.VOICECHATGLM_PROVIDER || 'legacy').trim().toLowerCase(); const hf = provider === 'huggingface_space' ? huggingFaceConfig(env) : undefined; const runpod = runPodConfig(env); const endpoint = modelEndpoint(env, production);
   const assertion = modelAssertionError(env, production); const key = typeof env.VOICECHATGLM_API_KEY === 'string' && env.VOICECHATGLM_API_KEY.trim() ? env.VOICECHATGLM_API_KEY : undefined;
   const origins = configuredOrigins(env, production); const auth = authConfig(env); const rateLimit = rateLimitConfig(env); const files = fileAnalysisConfig(env);
   const timeoutRaw = env.UPSTREAM_TIMEOUT_MS; const maxTimeout = runpod.enabled ? 360000 : 120000;
   const timeoutValid = timeoutRaw === undefined || Number.isInteger(Number(timeoutRaw)) && Number(timeoutRaw) >= 1000 && Number(timeoutRaw) <= maxTimeout;
   const proxyError = trustedProxyConfigurationError(env);
-  const providerInvalid = runpod.enabled ? Boolean(runpod.error) : !endpoint.url || !key || Boolean(production && assertion);
+  const providerInvalid = provider === 'huggingface_space' ? Boolean(hf?.error || production && assertion) : provider === 'runpod' ? Boolean(runpod.error) : provider !== 'legacy' || !endpoint.url || !key || Boolean(production && assertion);
   const runpodCredentialInvalid = runpod.enabled && Boolean(key && key === runpod.apiKey);
   if (providerInvalid || runpodCredentialInvalid || production && (origins.error || !auth.enabled || rateLimit.error || !timeoutValid || proxyError || files.enabled === false && env.FILE_ANALYSIS_ENABLED === 'true')) return { error: 'The application API is not configured.', origins: origins.values, production, auth, rateLimit, files };
-  return { url: runpod.enabled ? runpod.url : endpoint.url, key: runpod.enabled ? runpod.apiKey : key, timeout: bounded(env, 'UPSTREAM_TIMEOUT_MS', runpod.enabled ? 240000 : 60000, 1000, maxTimeout), origins: origins.values, production, auth, rateLimit, files, provider: runpod.enabled ? 'runpod' : 'legacy' };
+  return { url: provider === 'huggingface_space' ? hf.base : runpod.enabled ? runpod.url : endpoint.url, key: runpod.enabled ? runpod.apiKey : key, timeout: bounded(env, 'UPSTREAM_TIMEOUT_MS', runpod.enabled ? 240000 : 60000, 1000, maxTimeout), origins: origins.values, production, auth, rateLimit, files, provider: provider === 'huggingface_space' ? 'huggingface_space' : runpod.enabled ? 'runpod' : 'legacy' };
 }
-function startupConfigurationErrors(env = process.env) { if (env.NODE_ENV !== 'production') return []; const errors = []; const runpod = runPodConfig(env); if (runpod.enabled) { if (runpod.error) errors.push('RunPod provider configuration'); } else { if (!modelEndpoint(env, true).url) errors.push('model endpoint'); if (modelAssertionError(env, true)) errors.push('model assertion'); if (!(typeof env.VOICECHATGLM_API_KEY === 'string' && env.VOICECHATGLM_API_KEY.trim())) errors.push('model credentials'); } if (configuredOrigins(env, true).error) errors.push('allowed origins'); if (!authConfig(env).enabled) { errors.push('first-party authentication'); if (databaseConfig(env).error) errors.push('database configuration'); } const rate = rateLimitConfig(env); if (rate.error) errors.push('shared rate limiter'); const timeout = env.UPSTREAM_TIMEOUT_MS; if (runpod.enabled && env.VOICECHATGLM_API_KEY && env.RUNPOD_API_KEY && env.VOICECHATGLM_API_KEY === env.RUNPOD_API_KEY) errors.push('separate RunPod credentials'); const maxTimeout = runpod.enabled ? 360000 : 120000; if (timeout !== undefined && (!Number.isInteger(Number(timeout)) || Number(timeout) < 1000 || Number(timeout) > maxTimeout)) errors.push('upstream timeout'); const trusted = trustedProxyConfigurationError(env); if (trusted) errors.push(trusted); if (invalidPolicyConfiguration(env)) errors.push('file-analysis limits'); if (env.FILE_ANALYSIS_ENABLED === 'true' && !fileAnalysisConfig(env).enabled) errors.push('production file analysis'); const search = webSearchConfig(env); if (search.enabled && !search.configured) errors.push('web-search configuration'); const scraping = webRetrievalConfig(env); if (scraping.enabled && !scraping.configured) errors.push('website-retrieval configuration'); const writing = writingConfig(env); if (writing.enabled && !writing.configured) errors.push('writing-workflow configuration'); const artifacts = artifactConfig(env); if (artifacts.enabled && !artifacts.configured) errors.push('artifact-delivery configuration'); const knowledge = knowledgeConfig(env); if (knowledge.enabled && !knowledge.configured) errors.push('knowledge-base configuration'); const memory = memoryConfig(env); if (memory.enabled && !memory.configured) errors.push('persistent-memory configuration'); const dataAnalysis = dataAnalysisConfig(env); if (dataAnalysis.enabled && !dataAnalysis.configured) errors.push('data-analysis configuration'); const shares = shareConfig(env); if (shares.enabled && !shares.configured) errors.push('conversation-sharing configuration'); const ocr = ocrConfig(env); if (!ocr.disabledByPolicy && (!ocr.enabled || !ocr.configured)) errors.push('knowledge-ocr configuration'); const semantic = semanticConfig(env); if (semantic.enabled && !semantic.configured) errors.push('semantic-retrieval configuration'); const sandbox = sandboxConfig(env); if (sandbox.enabled && !sandbox.configured) errors.push('isolated-analysis configuration'); const browser = browserRendererConfig(env); if (browser.enabled && !browser.configured) errors.push('browser-rendering configuration'); const publicApi = apiKeyConfig(env); if (!publicApi.enabledValid || publicApi.enabled && !publicApi.configured) errors.push('public API-key configuration'); return [...new Set(errors)]; }
+function startupConfigurationErrors(env = process.env) { if (env.NODE_ENV !== 'production') return []; const errors = []; const provider = String(env.VOICECHATGLM_PROVIDER || 'legacy').trim().toLowerCase(); const runpod = runPodConfig(env); if (provider === 'huggingface_space') { const hf = huggingFaceConfig(env); if (hf.error) errors.push(hf.error); if (modelAssertionError(env, true)) errors.push('model assertion'); } else if (provider === 'runpod') { if (runpod.error) errors.push('RunPod provider configuration'); } else { if (provider !== 'legacy') errors.push('model provider'); if (!modelEndpoint(env, true).url) errors.push('model endpoint'); if (modelAssertionError(env, true)) errors.push('model assertion'); if (!(typeof env.VOICECHATGLM_API_KEY === 'string' && env.VOICECHATGLM_API_KEY.trim())) errors.push('model credentials'); } if (configuredOrigins(env, true).error) errors.push('allowed origins'); if (!authConfig(env).enabled) { errors.push('first-party authentication'); if (databaseConfig(env).error) errors.push('database configuration'); } const rate = rateLimitConfig(env); if (rate.error) errors.push('shared rate limiter'); const timeout = env.UPSTREAM_TIMEOUT_MS; if (runpod.enabled && env.VOICECHATGLM_API_KEY && env.RUNPOD_API_KEY && env.VOICECHATGLM_API_KEY === env.RUNPOD_API_KEY) errors.push('separate RunPod credentials'); const maxTimeout = runpod.enabled ? 360000 : 120000; if (timeout !== undefined && (!Number.isInteger(Number(timeout)) || Number(timeout) < 1000 || Number(timeout) > maxTimeout)) errors.push('upstream timeout'); const trusted = trustedProxyConfigurationError(env); if (trusted) errors.push(trusted); if (invalidPolicyConfiguration(env)) errors.push('file-analysis limits'); if (env.FILE_ANALYSIS_ENABLED === 'true' && !fileAnalysisConfig(env).enabled) errors.push('production file analysis'); const search = webSearchConfig(env); if (search.enabled && !search.configured) errors.push('web-search configuration'); const scraping = webRetrievalConfig(env); if (scraping.enabled && !scraping.configured) errors.push('website-retrieval configuration'); const writing = writingConfig(env); if (writing.enabled && !writing.configured) errors.push('writing-workflow configuration'); const artifacts = artifactConfig(env); if (artifacts.enabled && !artifacts.configured) errors.push('artifact-delivery configuration'); const knowledge = knowledgeConfig(env); if (knowledge.enabled && !knowledge.configured) errors.push('knowledge-base configuration'); const memory = memoryConfig(env); if (memory.enabled && !memory.configured) errors.push('persistent-memory configuration'); const dataAnalysis = dataAnalysisConfig(env); if (dataAnalysis.enabled && !dataAnalysis.configured) errors.push('data-analysis configuration'); const shares = shareConfig(env); if (shares.enabled && !shares.configured) errors.push('conversation-sharing configuration'); const ocr = ocrConfig(env); if (!ocr.disabledByPolicy && (!ocr.enabled || !ocr.configured)) errors.push('knowledge-ocr configuration'); const semantic = semanticConfig(env); if (semantic.enabled && !semantic.configured) errors.push('semantic-retrieval configuration'); const sandbox = sandboxConfig(env); if (sandbox.enabled && !sandbox.configured) errors.push('isolated-analysis configuration'); const browser = browserRendererConfig(env); if (browser.enabled && !browser.configured) errors.push('browser-rendering configuration'); const publicApi = apiKeyConfig(env); if (!publicApi.enabledValid || publicApi.enabled && !publicApi.configured) errors.push('public API-key configuration'); return [...new Set(errors)]; }
 function allowedOrigin(origin, cfg) { return !origin || cfg.origins.includes(origin) || !cfg.production && cfg.origins.length === 0; }
 function securityHeaders(origin, cfg) { const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', Vary: 'Origin' }; if (origin && allowedOrigin(origin, cfg)) { headers['Access-Control-Allow-Origin'] = origin; headers['Access-Control-Allow-Credentials'] = 'true'; headers['Access-Control-Allow-Methods'] = 'GET, POST, PATCH, DELETE, OPTIONS'; headers['Access-Control-Allow-Headers'] = 'Content-Type, X-CSRF-Token'; headers['Access-Control-Max-Age'] = '600'; } return headers; }
 function response(status, payload, origin, cfg, extraHeaders = {}) { return { statusCode: status, headers: { ...securityHeaders(origin, cfg), ...extraHeaders }, body: status === 204 ? '' : JSON.stringify(payload) }; }
@@ -77,7 +77,76 @@ async function runPodRequest(cfg, path, init = {}, signal, timeout = 240000) {
   try { const response = await fetch(`${cfg.url}${path}`, { ...init, signal: controller.signal, headers: { Authorization: `Bearer ${cfg.apiKey}`, Accept: 'application/json', ...(init.method === 'POST' ? { 'Content-Type': 'application/json' } : {}) } }); const raw = await response.text(); let body; try { body = raw ? JSON.parse(raw) : {}; } catch { body = {}; } return { status: response.status, body }; }
   finally { clearTimeout(timer); signal?.removeEventListener('abort', relayAbort); }
 }
+async function fetchWithTimeout(url, init, timeout, signal) {
+  const controller = new AbortController();
+  const relayAbort = () => controller.abort();
+  signal?.addEventListener('abort', relayAbort, { once: true });
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try { return await fetch(url, { ...init, signal: controller.signal }); }
+  finally { clearTimeout(timer); signal?.removeEventListener('abort', relayAbort); }
+}
+async function huggingFaceConfig(env) {
+  const raw = typeof env.VOICECHATGLM_API_URL === 'string' ? env.VOICECHATGLM_API_URL.trim() : '';
+  const apiKey = typeof env.VOICECHATGLM_API_KEY === 'string' ? env.VOICECHATGLM_API_KEY.trim() : '';
+  const hfToken = typeof env.HF_TOKEN === 'string' ? env.HF_TOKEN.trim() : '';
+  let base;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error();
+    base = parsed.toString().replace(/\/$/, '');
+  } catch { return { error: 'Hugging Face Space URL configuration' }; }
+  if (!apiKey || !hfToken) return { error: 'Hugging Face Space credentials configuration' };
+  return { base, apiKey, hfToken };
+}
+function parseGradioCompletion(sse) {
+  const events = String(sse || '').split(/\r?\n\r?\n/);
+  for (const event of events) {
+    const lines = event.split(/\r?\n/);
+    if (!lines.some(line => line.trim() === 'event: complete')) {
+      if (lines.some(line => line.trim() === 'event: error')) throw Object.assign(new Error('Hugging Face inference returned an error event.'), { code: 'MODEL_UPSTREAM_ERROR' });
+      continue;
+    }
+    const dataLine = lines.find(line => line.startsWith('data:'));
+    if (!dataLine) throw Object.assign(new Error('Hugging Face inference returned an empty completion event.'), { code: 'MODEL_INVALID_RESPONSE' });
+    let data;
+    try { data = JSON.parse(dataLine.slice(5).trim()); } catch { throw Object.assign(new Error('Hugging Face inference returned invalid completion data.'), { code: 'MODEL_INVALID_RESPONSE' }); }
+    const answer = Array.isArray(data) ? data[0] : undefined;
+    if (typeof answer !== 'string' || !answer.trim()) throw Object.assign(new Error('Hugging Face inference returned an empty model response.'), { code: 'MODEL_INVALID_RESPONSE' });
+    return { status: 200, body: { response: answer.trim(), model: MODEL_ID, revision: MODEL_REVISION } };
+  }
+  throw Object.assign(new Error('Hugging Face inference did not complete its queued event.'), { code: 'MODEL_INCOMPLETE' });
+}
+async function callHuggingFaceModel(env, path, init, timeout, signal) {
+  const cfg = await huggingFaceConfig(env);
+  if (cfg.error) throw Object.assign(new Error('Hugging Face Space configuration is unavailable.'), { code: 'MODEL_CONFIGURATION' });
+  const headers = { 'X-API-Key': cfg.apiKey, Authorization: `Bearer ${cfg.hfToken}`, Accept: 'application/json' };
+  if (path === '/health' || path === '/ready') {
+    const response = await fetchWithTimeout(`${cfg.base}/`, { method: 'GET', headers }, Math.min(timeout, 8000), signal);
+    return response.ok ? { status: 200, body: { status: 'ok', provider: 'huggingface_space' } } : { status: response.status, body: {} };
+  }
+  if (path !== '/v1/chat' || init.method !== 'POST') throw Object.assign(new Error('Unsupported Hugging Face model route.'), { code: 'MODEL_ROUTE' });
+  let source; try { source = JSON.parse(init.body || '{}'); } catch { source = {}; }
+  const maxTokens = Number.isInteger(source.max_new_tokens) ? Math.min(512, Math.max(1, source.max_new_tokens)) : 256;
+  const systemPrompt = typeof source.system_prompt === 'string' && source.system_prompt.trim() ? source.system_prompt : 'You are VoiceChatGLM, a helpful AI assistant. Answer clearly and concisely.';
+  const submitted = await fetchWithTimeout(`${cfg.base}/gradio_api/call/generate`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data: [source.message, systemPrompt, maxTokens] })
+  }, timeout, signal);
+  const submitText = await submitted.text();
+  let submitBody; try { submitBody = submitText ? JSON.parse(submitText) : {}; } catch { submitBody = {}; }
+  if (!submitted.ok) return { status: submitted.status, body: { error: 'Hugging Face inference submission was rejected.' } };
+  const eventId = submitBody?.event_id;
+  if (typeof eventId !== 'string' || !/^[A-Za-z0-9_-]{8,160}$/.test(eventId)) throw Object.assign(new Error('Hugging Face inference did not return a valid event identifier.'), { code: 'MODEL_INVALID_RESPONSE' });
+  const result = await fetchWithTimeout(`${cfg.base}/gradio_api/call/generate/${encodeURIComponent(eventId)}`, {
+    method: 'GET', headers: { ...headers, Accept: 'text/event-stream' }
+  }, timeout, signal);
+  const sse = await result.text();
+  if (!result.ok) return { status: result.status, body: { error: 'Hugging Face inference result retrieval failed.' } };
+  return parseGradioCompletion(sse);
+}
 async function callConfiguredModel(env, path, init, timeout, signal) {
+  const provider = String(env.VOICECHATGLM_PROVIDER || 'legacy').trim().toLowerCase();
+  if (provider === 'huggingface_space') return callHuggingFaceModel(env, path, init, timeout, signal);
   const cfg = runPodConfig(env);
   if (!cfg.enabled) { const legacy = modelEndpoint(env, env.NODE_ENV === 'production'); const key = typeof env.VOICECHATGLM_API_KEY === 'string' ? env.VOICECHATGLM_API_KEY.trim() : ''; if (!legacy.url || !key) throw Object.assign(new Error('Model service configuration is unavailable.'), { code: 'MODEL_CONFIGURATION' }); return upstream(legacy.url, key, path, init, timeout, signal); }
   if (cfg.error) throw Object.assign(new Error('RunPod provider configuration is invalid.'), { code: 'MODEL_CONFIGURATION' });
@@ -192,4 +261,4 @@ async function nodeHandler(req, res, context = {}) {
   finally { req.removeListener('aborted', abort); res.removeListener('close', responseClosed); }
   if (res.destroyed || res.writableEnded) return; res.writeHead(output.statusCode, output.headers); res.end(output.body);
 }
-module.exports = { MAX_BODY_BYTES, validateChat, execute, executePublicApi, nodeHandler, config, startupConfigurationErrors, nodeRateLimitKey, trustedProxyPeer, validIp, resetRateLimitForTests: resetLimiter, securityHeaders, publicApiResponse, runPodConfig, callConfiguredModel };
+module.exports = { MAX_BODY_BYTES, validateChat, execute, executePublicApi, nodeHandler, config, startupConfigurationErrors, nodeRateLimitKey, trustedProxyPeer, validIp, resetRateLimitForTests: resetLimiter, securityHeaders, publicApiResponse, runPodConfig, callConfiguredModel, parseGradioCompletion };
