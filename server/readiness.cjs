@@ -27,20 +27,6 @@ async function probeHuggingFaceSpace(env, signal) {
     return response.ok;
   } catch { return false; }
 }
-function huggingFaceSpaceConfig(env) {
-  const endpoint = modelEndpoint(env);
-  const key = typeof env.VOICECHATGLM_API_KEY === 'string' ? env.VOICECHATGLM_API_KEY.trim() : '';
-  const token = typeof env.HF_TOKEN === 'string' ? env.HF_TOKEN.trim() : '';
-  return { configured: Boolean(endpoint && key && token) };
-}
-async function probeHuggingFaceSpace(env, signal) {
-  const endpoint = modelEndpoint(env), key = String(env.VOICECHATGLM_API_KEY || '').trim(), token = String(env.HF_TOKEN || '').trim();
-  if (!endpoint || !key || !token) return false;
-  try {
-    const response = await fetch(endpoint, { method: 'GET', signal, headers: { 'X-API-Key': key, Authorization: `Bearer ${token}`, Accept: 'text/html' } });
-    return response.ok;
-  } catch { return false; }
-}
 function modelConfigured(env) { if (String(env.VOICECHATGLM_PROVIDER || '').trim().toLowerCase() === 'huggingface_space') return huggingFaceSpaceConfig(env).configured; if (String(env.VOICECHATGLM_PROVIDER || '').trim().toLowerCase() === 'runpod') return /^[A-Za-z0-9_-]{4,100}$/.test(String(env.RUNPOD_ENDPOINT_ID || '').trim()) && Boolean(String(env.RUNPOD_API_KEY || '').trim()); return Boolean(modelEndpoint(env)); }
 function booleanState(value) { return value ? 'reachable' : 'unreachable'; }
 async function within(operation, milliseconds) { const controller = new AbortController(); let rejectTimeout; const expired = new Promise((_, reject) => { rejectTimeout = reject; }); const timer = setTimeout(() => { controller.abort(); rejectTimeout(new Error('readiness probe timed out.')); }, milliseconds); try { return await Promise.race([Promise.resolve().then(() => operation(controller.signal)), expired]); } finally { clearTimeout(timer); } }
