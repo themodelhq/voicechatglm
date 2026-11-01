@@ -34,7 +34,7 @@ function extractHtml(html, sourceUrl, configuration) { const document = parseDoc
     const elements = [];
     const walkElements = node => { if (!node || typeof node !== 'object') return; if (node.type === 'tag') elements.push(node); for (const child of node.children || []) walkElements(child); };
     for (const child of document.children || []) walkElements(child);
-    const classes = node => String(attributeMap(node).class || '').toLowerCase().split(/\\s+/).filter(Boolean);
+    const classes = node => String(attributeMap(node).class || '').toLowerCase().split(/\s+/).filter(Boolean);
     const matches = (node, selector) => {
       const attrs = attributeMap(node); const cls = classes(node); const name = String(node.name || '').toLowerCase();
       if (selector.startsWith('.')) return cls.includes(selector.slice(1));
@@ -42,7 +42,7 @@ function extractHtml(html, sourceUrl, configuration) { const document = parseDoc
       return name === selector;
     };
     const first = selectors => { for (const selector of selectors) { const found = elements.find(node => matches(node, selector)); if (found) return found; } return undefined; };
-    const valueOf = node => { if (!node) return ''; const attrs = attributeMap(node); return String(attrs.content || attrs['data-price'] || attrs['data-product_sku'] || nodeText(node) || '').replace(/\\s+/g, ' ').trim(); };
+    const valueOf = node => { if (!node) return ''; const attrs = attributeMap(node); return String(attrs.content || attrs['data-price'] || attrs['data-product_sku'] || nodeText(node) || '').replace(/\s+/g, ' ').trim(); };
     const body = elements.find(node => String(node.name).toLowerCase() === 'body');
     const bodyClasses = classes(body);
     const nameNode = first(['.product_title','.product-title','[itemprop=name]','h1']);
@@ -61,7 +61,7 @@ function extractHtml(html, sourceUrl, configuration) { const document = parseDoc
       });
       const images = [...new Set(imageNodes.map(node => { const attrs=attributeMap(node); const raw=attrs['data-large_image']||attrs['data-src']||attrs['data-lazy-src']||attrs.src; try{return raw?new URL(raw,sourceUrl).toString():undefined;}catch{return undefined;} }).filter(Boolean))].slice(0,20);
       const priceRaw = valueOf(priceNode);
-      const amount = /\\d[\\d.,]*/.exec(priceRaw)?.[0];
+      const amount = /\d[\d.,]*/.exec(priceRaw)?.[0];
       const currencyNode = elements.find(node => String(attributeMap(node).itemprop || '').toLowerCase()==='pricecurrency');
       const sku = valueOf(skuNode);
       products.push({name:valueOf(nameNode).slice(0,500),...(valueOf(descriptionNode)?{description:valueOf(descriptionNode).slice(0,2000)}:{}),url:sourceUrl,...(images.length?{imageUrls:images}:{}),...(amount?{price:amount}:{}),...(currencyNode?{currency:valueOf(currencyNode).slice(0,12)}:{}),...(sku?{sku:sku.slice(0,160)}:{})});
