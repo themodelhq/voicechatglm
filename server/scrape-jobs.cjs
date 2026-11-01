@@ -46,12 +46,25 @@ async function updateProgress(id, workflow) {
      JSON.stringify({phase:workflow.crawl?.phase||'retrieving_pages',batchSize:workflow.crawl?.batchSize||0,pagesVisited:workflow.crawl?.pagesVisited||workflow.pages.length,productRecordsFound:workflow.crawl?.productRecordsFound||products,queuedButNotVisited:workflow.crawl?.queuedButNotVisited||0,discoveryPagesVisited:workflow.crawl?.discoveryPagesVisited||0,productPagesVisited:workflow.crawl?.productPagesVisited||0,productUrlsDiscovered:workflow.crawl?.productUrlsDiscovered||0,productUrlsRemaining:workflow.crawl?.productUrlsRemaining||0,discoveryPagesRemaining:workflow.crawl?.discoveryPagesRemaining||0,detectedPlatforms:workflow.crawl?.detectedPlatforms||[],sitemapsVisited:workflow.crawl?.sitemapsVisited||0,sitemapLimitReached:Boolean(workflow.crawl?.sitemapLimitReached)}),LEASE_MS,WORKER_ID]);
 }
 function catalogueRows(workflow) {
-  const seen=new Set(), rows=[];
-  for(const page of workflow.pages) for(const item of page.products||[]) {
-    const url=item.url||page.finalUrl||page.url; const key=String(item.sku||url+'|'+item.name).toLowerCase();
-    if(seen.has(key)) continue; seen.add(key);
-    rows.push([item.name||page.title||'',item.description||page.description||'',item.price||'',item.currency||'',item.availability||'',item.sku||'',item.brand||'',item.rating||'',item.reviewCount||'',url,(item.imageUrls?.length?item.imageUrls:page.products?.length===1?page.imageUrls||[]:[]).join(' | ')]);
+  const byIdentity = new Map();
+  const clean = value => value === undefined || value === null || String(value).trim() === '' ? undefined : String(value).trim();
+  const canonical = value => { try { const url = new URL(value); url.hash = ''; for (const key of [...url.searchParams.keys()]) if (/^(utm_|fbclid$|gclid$)/i.test(key)) url.searchParams.delete(key); return url.toString(); } catch { return clean(value); } };
+  for (const page of workflow.pages || []) for (const item of page.products || []) {
+    const url = canonical(item.url || page.finalUrl || page.url);
+    const sku = clean(item.sku);
+    const key = sku ? `sku:${sku.toLowerCase()}` : url ? `url:${url.toLowerCase()}` : `name:${clean(item.name || page.title)?.toLowerCase() || randomUUID()}`;
+    const existing = byIdentity.get(key) || { name: '', description: '', price: '', currency: '', availability: '', sku: '', brand: '', rating: '', reviewCount: '', url: '', imageUrls: [] };
+    // Detail-page values enrich listing-card values; absent values never erase known data.
+    for (const field of ['name','description','price','currency','availability','sku','brand','rating','reviewCount']) {
+      const value = clean(item[field]);
+      if (value && (!existing[field] || page.pageType === 'product' && field !== 'sku')) existing[field] = value;
+    }
+    if (url && (!existing.url || page.pageType === 'product')) existing.url = url;
+    const images = [...(item.imageUrls || []), ...(item.imageUrl ? [item.imageUrl] : [])].map(clean).filter(Boolean);
+    existing.imageUrls = [...new Set([...existing.imageUrls, ...images])];
+    byIdentity.set(key, existing);
   }
+  const rows = [...byIdentity.values()].map(item => [item.name,item.description,item.price,item.currency,item.availability,item.sku,item.brand,item.rating,item.reviewCount,item.url,item.imageUrls.join(' | ')]);
   return [['Product Name','Description','Price','Currency','Availability','SKU','Brand','Rating','Review Count','Product URL','Image URLs'],...rows];
 }
 async function processJob(job) {
