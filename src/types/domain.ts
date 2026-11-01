@@ -58,6 +58,7 @@ export interface Message {
   citations?: CitationReference[];
   toolEvents?: ToolEventReference[];
   route?: string;
+  scrapeJobId?: string;
   notices?: string[];
   analysisTruncated?: boolean;
 }
