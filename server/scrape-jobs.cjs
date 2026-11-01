@@ -4,11 +4,11 @@ const { runScrape } = require('./orchestrator.cjs');
 const { webRetrievalConfig } = require('./web-retrieval.cjs');
 const { artifactConfig, persistGeneratedArtifact } = require('./artifacts.cjs');
 const { createObjectStore } = require('./files/object-storage.cjs');
-const WORKER_ID = `scrape-${process.pid}-${randomUUID()}`;
+const WORKER_ID = `scrape-${process.pid}-${randomUUID()}`;\nconst API_BATCH_ID = `api-batch-${process.pid}`;
 const POLL_MS = 1500;
 const LEASE_MS = 300000;
 function publicJob(row) {
-  return row && { id: row.id, status: row.status, pagesVisited: Number(row.pages_visited || 0), pagesDiscovered: Number(row.pages_discovered || 0), productsFound: Number(row.products_found || 0), failedPages: Number(row.failed_pages || 0), artifactId: row.artifact_id || undefined, progress: row.progress || {}, errorCode: row.error_code || undefined, createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at || undefined };
+  return row && { id: row.id, status: row.status, pagesVisited: Number(row.pages_visited || 0), pagesDiscovered: Number(row.pages_discovered || 0), productsFound: Number(row.products_found || 0), failedPages: Number(row.failed_pages || 0), artifactId: row.artifact_id || undefined, progress, errorCode: row.error_code || undefined, createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at || undefined };
 }
 async function enqueueScrapeJob({ userId, conversationId, assistantMessageId, urls, message }) {
   const id = randomUUID();
@@ -19,6 +19,43 @@ async function enqueueScrapeJob({ userId, conversationId, assistantMessageId, ur
 async function getScrapeJob(userId, id) {
   const result = await getPool().query('SELECT * FROM website_scrape_jobs WHERE id=$1 AND user_id=$2',[id,userId]);
   return publicJob(result.rows[0]);
+}
+
+async function advanceScrapeJob(userId, id) {
+  const client = await getPool().connect(); let job;
+  try {
+    await client.query('BEGIN');
+    const result=await client.query('SELECT * FROM website_scrape_jobs WHERE id=$1 AND user_id=$2 FOR UPDATE',[id,userId]); job=result.rows[0];
+    if(!job){await client.query('COMMIT');return undefined;}
+    if(['completed','partial','failed'].includes(job.status)){await client.query('COMMIT');return publicJob(job);}
+    if(job.lease_expires_at&&new Date(job.lease_expires_at).getTime()>Date.now()){await client.query('COMMIT');return publicJob(job);}
+    await client.query("UPDATE website_scrape_jobs SET status='running',worker_id=$2,lease_expires_at=NOW()+INTERVAL '90 seconds',started_at=COALESCE(started_at,NOW()),updated_at=NOW() WHERE id=$1",[id,API_BATCH_ID]);
+    await client.query('COMMIT');
+  } catch(error){await client.query('ROLLBACK').catch(()=>undefined);throw error;} finally{client.release();}
+  try {
+    const cfg=webRetrievalConfig(process.env);
+    if(!cfg.enabled||!cfg.configured)throw Object.assign(new Error('Website retrieval is disabled or misconfigured.'),{code:'CAPABILITY_UNAVAILABLE'});
+    const workflow=await runScrape({urls:Array.isArray(job.seed_urls)?job.seed_urls:[],retrievalConfiguration:cfg,background:false,batchPageLimit:3,resumeState:job.progress?.workflowState,onProgress:async snapshot=>{
+      await getPool().query("UPDATE website_scrape_jobs SET pages_visited=$2,pages_discovered=$3,products_found=$4,failed_pages=$5,progress=$6::jsonb,lease_expires_at=NOW()+INTERVAL '90 seconds',updated_at=NOW() WHERE id=$1 AND worker_id=$7",
+      [id,snapshot.crawl?.pagesVisited||snapshot.pages.length,snapshot.crawl?.pagesDiscovered||0,snapshot.crawl?.productRecordsFound||0,snapshot.failures.length,
+      JSON.stringify({phase:snapshot.crawl?.phase,batchSize:snapshot.crawl?.batchSize||0,pagesVisited:snapshot.crawl?.pagesVisited||0,productRecordsFound:snapshot.crawl?.productRecordsFound||0,queuedButNotVisited:snapshot.crawl?.queuedButNotVisited||0,discoveryPagesVisited:snapshot.crawl?.discoveryPagesVisited||0,productPagesVisited:snapshot.crawl?.productPagesVisited||0,productUrlsDiscovered:snapshot.crawl?.productUrlsDiscovered||0,productUrlsRemaining:snapshot.crawl?.productUrlsRemaining||0,discoveryPagesRemaining:snapshot.crawl?.discoveryPagesRemaining||0,workflowState:snapshot.crawl?.resumeState}),API_BATCH_ID]);
+    }});
+    if(workflow.crawl?.hasMore){await getPool().query("UPDATE website_scrape_jobs SET status='running',worker_id=NULL,lease_expires_at=NULL,updated_at=NOW() WHERE id=$1 AND worker_id=$2",[id,API_BATCH_ID]);return getScrapeJob(userId,id);}
+    const rows=catalogueRows(workflow),count=Math.max(0,rows.length-1);
+    if(!count)throw Object.assign(new Error('No structured product records were extracted.'),{code:'NO_PRODUCTS'});
+    const artifacts=artifactConfig(process.env);if(!artifacts.enabled||!artifacts.configured)throw Object.assign(new Error('Private Excel artifact storage is unavailable.'),{code:'ARTIFACT_UNAVAILABLE'});
+    const repository=require('./auth.cjs').repositoryFor(process.env),store=createObjectStore(artifacts.storage);
+    const artifact=await persistGeneratedArtifact({repository,store,userId:job.user_id,conversationId:job.conversation_id,messageId:job.assistant_message_id,jobId:id,title:'Website Product Catalogue',content:'Website product catalogue',format:'xlsx',rows,expiresAt:new Date(Date.now()+artifacts.retentionMs)});
+    const status=workflow.partial?'partial':'completed';
+    await getPool().query("UPDATE website_scrape_jobs SET status=$2,pages_visited=$3,pages_discovered=$4,products_found=$5,failed_pages=$6,artifact_id=$7,progress=$8::jsonb,completed_at=NOW(),updated_at=NOW(),lease_expires_at=NULL,worker_id=NULL WHERE id=$1 AND worker_id=$9",
+    [id,status,workflow.pages.length,workflow.crawl?.pagesDiscovered||workflow.pages.length,count,workflow.failures.length,artifact.id,JSON.stringify({phase:'completed',pagesVisited:workflow.pages.length,productRecordsFound:count,queuedButNotVisited:workflow.crawl?.queuedButNotVisited||0}),API_BATCH_ID]);
+    if(job.assistant_message_id)await repository.updateConversationMessage({userId:job.user_id,conversationId:job.conversation_id,id:job.assistant_message_id,content:`The website crawl retrieved ${workflow.pages.length} pages and extracted ${count} product record(s). The Excel workbook is ready.`,status,metadata:{route:'website_scraping',artifacts:[{id:artifact.id,filename:artifact.displayFilename||artifact.filename,format:'xlsx',contentType:artifact.contentType,size:artifact.size,status:artifact.status||'available',checksum:artifact.checksum,preview:artifact.preview,createdAt:artifact.createdAt,expiresAt:artifact.expiresAt,messageId:artifact.messageId}],scrapeJobId:id}}).catch(()=>undefined);
+    return getScrapeJob(userId,id);
+  } catch(error){
+    const code=String(error?.code||'SCRAPE_FAILED').slice(0,80);
+    await getPool().query("UPDATE website_scrape_jobs SET status='failed',error_code=$2,completed_at=NOW(),lease_expires_at=NULL,worker_id=NULL,updated_at=NOW() WHERE id=$1 AND worker_id=$3",[id,code,API_BATCH_ID]);
+    throw error;
+  }
 }
 async function claimJob() {
   const client = await getPool().connect();
@@ -109,4 +146,4 @@ async function tick() {
 }
 function startScrapeWorker() { if(timer) return ()=>stopScrapeWorker(); stopped=false; console.info('[VoiceChatGLM scrape-worker] Started queue polling.', { pollMs: POLL_MS, leaseMs: LEASE_MS }); timer=setInterval(()=>void tick(),POLL_MS); void tick(); return ()=>stopScrapeWorker(); }
 function stopScrapeWorker() { stopped=true; if(timer) clearInterval(timer); timer=undefined; }
-module.exports={enqueueScrapeJob,getScrapeJob,startScrapeWorker,stopScrapeWorker,publicJob};
+module.exports={enqueueScrapeJob,getScrapeJob,advanceScrapeJob,startScrapeWorker,stopScrapeWorker,publicJob};
