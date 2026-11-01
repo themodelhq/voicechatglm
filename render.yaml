@@ -147,7 +147,7 @@ services:
       - key: WEB_SCRAPING_MAX_RESPONSE_BYTES
         value: "1000000"
       - key: WEB_SCRAPING_MAX_PAGES_PER_REQUEST
-        value: "100"
+        value: "200"
       - key: WEB_SCRAPING_MAX_LINKS
         value: "1000"
       - key: WEB_SCRAPING_CONCURRENCY
