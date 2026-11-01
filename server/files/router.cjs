@@ -82,7 +82,7 @@ function productionError(res, error, origin, cfg) {
     const requestId = randomUUID();
     try { res.setHeader('X-Request-ID', requestId); } catch {}
     const stackFrames = typeof error?.stack === 'string'
-      ? error.stack.split('\\n').slice(1).map(line => line.trim()).slice(0, 12)
+      ? error.stack.split(String.fromCharCode(10)).slice(1).map(line => line.trim()).slice(0, 12)
       : [];
     console.error(JSON.stringify({
       event: 'file_request_failed',
