@@ -62,7 +62,7 @@ async function routeChat({ message, request, userId, repository, callModel, sign
   if (route === 'website_scraping') { const cfg = webRetrievalConfig(env); const limited = await consumeAction?.('website-scraping', cfg.burstPerMinute); if (limited && !limited.allowed) throw Object.assign(new Error(limited.unavailable ? 'Website retrieval capacity protection is temporarily unavailable.' : 'Website retrieval burst protection is active. Try again shortly.'), { code: limited.unavailable ? 'RATE_LIMIT_UNAVAILABLE' : 'RATE_LIMIT', status: limited.unavailable ? 503 : 429, retryAfter: limited.retryAfter });
     // Product-catalogue exports must run on the durable worker. Calling runScrape()
     // directly here silently applies its three-page synchronous safety limit.
-    const wantsCatalogue = /\\b(products?|product catalogue|product catalog|inventory|shop items)\\b/i.test(message) && /\\b(details?|all|every|complete|full|excel|spreadsheet|image|sku|price)\\b/i.test(message);
+    const wantsCatalogue = /\b(products?|product catalogue|product catalog|inventory|shop items)\b/i.test(message) && /\b(details?|all|every|complete|full|excel|spreadsheet|image|sku|price)\b/i.test(message);
     if (wantsCatalogue && conversationId && assistantMessageId) {
       if (!cfg.enabled || !cfg.configured) throw Object.assign(new Error(cfg.reason || 'Website retrieval is unavailable.'), { code: 'CAPABILITY_UNAVAILABLE', status: 503 });
       const job = await enqueueScrapeJob({ userId, conversationId, assistantMessageId, urls: decision.urls, message });
