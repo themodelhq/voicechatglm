@@ -58,9 +58,10 @@ function productionError(res, error, origin, cfg) {
   const knownClientError = code === 'CANCELLED' || code === 'MALWARE_FOUND' || code === 'FILE_TOO_LARGE' || code === 'FILE_NOT_CLEAN' || code === 'ANALYSIS_UNAVAILABLE' || code?.startsWith?.('OCR_');
   const status = code === 'CANCELLED' ? 499
     : code === 'TIMEOUT' || code === 'OCR_TIMEOUT' || code === 'OCR_PDF_TIMEOUT' ? 504
-    : code === 'MALWARE_FOUND' || code === 'FILE_NOT_CLEAN' || code === 'ANALYSIS_UNAVAILABLE' || code?.startsWith?.('OCR_') ? 422
+    : code === 'MALWARE_FOUND' || code === 'FILE_NOT_CLEAN' || code === 'ANALYSIS_UNAVAILABLE' ? 422
     : code === 'FILE_TOO_LARGE' ? 413
     : code === 'SCANNER_UNAVAILABLE' || code === 'STORAGE_UNAVAILABLE' || code === 'OCR_UNAVAILABLE' || code === 'OCR_PDF_RENDERER_UNAVAILABLE' || code === 'CONVERSATION_STORAGE' ? 503
+    : code?.startsWith?.('OCR_') ? 422
     : code === 'MODEL_ERROR' && Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599 ? error.status
     : knownClientError ? 400 : 500;
   const message = code === 'CANCELLED' ? 'File processing was cancelled.'
