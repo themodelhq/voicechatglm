@@ -34,7 +34,7 @@ async function retrievePage({ url, configuration = webRetrievalConfig(), signal,
 async function discoverSitemapProducts({ urls, configuration = webRetrievalConfig(), signal, ...options }) {
   const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true });
   const discovered = new Set(); const visitedMaps = new Set(); const platforms = new Set(); const queue = [];
-  const maxMaps = Math.max(4, Math.min(40, Number(configuration.maxSitemaps) || 20));
+  const maxMaps = Math.max(4, Math.min(40, Number(configuration.maxSitemaps) || 12));
   const maxProducts = Math.max(1, Math.min(20000, Number(configuration.maxLinks) || 10000));
   const hostRoots = [...new Set((urls || []).map(value => { try { const u = new URL(value); return u.origin; } catch { return undefined; } }).filter(Boolean))];
   for (const root of hostRoots) {
