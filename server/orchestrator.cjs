@@ -1,6 +1,6 @@
 /* Bounded, deterministic orchestration. Plans are generated from server rules only;
  * model output is never treated as executable instructions. */
-const { searchWeb, sourcesForModel } = require('./web-search.cjs'); const { retrievePage } = require('./web-retrieval.cjs');
+const { searchWeb, sourcesForModel } = require('./web-search.cjs'); const { retrievePage, discoverSitemapProducts } = require('./web-retrieval.cjs');
 const MAX_WORKFLOW_STEPS = 8; const MAX_RESEARCH_SOURCES = 5;
 function assertNotCancelled(signal) { if (signal?.aborted) throw Object.assign(new Error('The workflow was cancelled.'), { code: 'CANCELLED', status: 499 }); }
 function boundedMap(values, concurrency, operation, signal) { return new Promise((resolve, reject) => { const results = new Array(values.length); let next = 0; let active = 0; let done = 0; let rejected = false; const launch = () => { if (done === values.length) return resolve(results); while (active < concurrency && next < values.length && !rejected) { const index = next++; active += 1; Promise.resolve().then(() => { assertNotCancelled(signal); return operation(values[index], index); }).then(value => { results[index] = { ok: true, value }; }).catch(error => { if (signal?.aborted || error?.code === 'CANCELLED') { rejected = true; reject(Object.assign(new Error('The workflow was cancelled.'), { code: 'CANCELLED', status: 499 })); return; } results[index] = { ok: false, error: error?.code || 'RETRIEVAL_FAILED', message: 'This source could not be retrieved.' }; }).finally(() => { active -= 1; done += 1; if (!rejected) launch(); }); } }; launch(); }); }
@@ -55,6 +55,8 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   };
   let discoveryVisited = 0;
   let productPagesVisited = 0;
+  const platformDiscovery = await discoverSitemapProducts({ urls: seeds, configuration: retrievalConfiguration, signal, ...retrievalOptions });
+  for (const productUrlFromMap of platformDiscovery.productUrls) enqueueProduct(productUrlFromMap);
   while ((discoveryQueue.length || productQueue.length) && pages.length + failures.length < maxPages) {
     assertNotCancelled(signal);
     // Always finish catalogue discovery before consuming the product queue. This
@@ -107,6 +109,9 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
         discoveryPagesVisited: discoveryVisited,
         productPagesVisited,
         productUrlsDiscovered: productQueued.size,
+        detectedPlatforms: platformDiscovery.platforms,
+        sitemapsVisited: platformDiscovery.sitemapsVisited,
+        sitemapLimitReached: platformDiscovery.sitemapLimitReached,
         productUrlsRemaining: productQueue.length,
         discoveryPagesRemaining: discoveryQueue.length
       }
@@ -125,7 +130,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
       queuedButNotVisited: remaining, discoveryPagesVisited: discoveryVisited,
       productPagesVisited, productUrlsDiscovered: productQueued.size,
       productUrlsRemaining: productQueue.length, discoveryPagesRemaining: discoveryQueue.length,
-      discoveryPageLimit: maxDiscoveryPages, pageLimit: maxPages, productRecordsFound: products
+      discoveryPageLimit: maxDiscoveryPages, pageLimit: maxPages, productRecordsFound: products, detectedPlatforms: platformDiscovery.platforms, sitemapsVisited: platformDiscovery.sitemapsVisited, sitemapLimitReached: platformDiscovery.sitemapLimitReached
     }
   };
 }
