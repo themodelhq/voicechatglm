@@ -74,3 +74,16 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
 .authentication-form .authentication-error { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid color-mix(in srgb,var(--danger) 35%,var(--border)); border-radius: 8px; background: var(--danger-soft); color: var(--danger); text-align: left; }
 .authentication-form [role="status"] { width: 100%; color: var(--success); text-align: left; }
 @media (max-width: 520px) { .authentication-screen { padding: 14px; }.authentication-card { width: 100%; box-sizing: border-box; padding: 24px 18px; }.authentication-card h1 { font-size: clamp(21px,6vw,25px); } }
+
+
+/* Live progress rendered inside the assistant's message for durable background work. */
+.scrape-progress { margin: 14px 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); }
+.scrape-progress > strong { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 12px; }
+.scrape-progress > strong > span { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--success); }
+.scrape-progress > strong > .progress-pulse { background: var(--accent); animation: scrape-pulse 1.4s ease-in-out infinite; }
+.scrape-progress-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(105px,1fr)); gap: 9px; margin-top: 12px; }
+.scrape-progress-grid > span { display: grid; gap: 2px; padding: 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); }
+.scrape-progress-grid b { color: var(--text); font-size: 16px; font-variant-numeric: tabular-nums; }
+.scrape-progress-grid small { color: var(--muted); font-size: 10px; }
+@keyframes scrape-pulse { 50% { opacity: .35; transform: scale(.78); } }
+@media (prefers-reduced-motion: reduce) { .scrape-progress-grid + * { animation: none; }.scrape-progress .progress-pulse { animation: none; } }
