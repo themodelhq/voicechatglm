@@ -54,7 +54,8 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
       continue;
     }
     const results = await boundedMap(batch, retrievalConfiguration.concurrency, url => retrievePage({ url, configuration: retrievalConfiguration, signal, ...retrievalOptions }), signal);
-    batchProcessed += results.length;\n    for (let index = 0; index < results.length; index += 1) {
+    batchProcessed += results.length;
+    for (let index = 0; index < results.length; index += 1) {
       const result = results[index]; const requestedUrl = batch[index];
       if (!result.ok) {
         failures.push({ url: requestedUrl, code: result.error, message: result.message, pageType: phase === 'products' ? 'product' : 'discovery' });
