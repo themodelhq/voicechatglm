@@ -30,7 +30,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   const productUrl = value => {
     try {
       const url = new URL(value); const path = url.pathname.toLowerCase();
-      return /(?:^|\/)(?:products?|product-detail|item|p)\/(?:[^/]+)(?:\/|$)/.test(path)
+      return /(?:^|\/)(?:products?|produits?|product-detail|item|p|artikel|produto)\/(?:[^/]+)(?:\/|$)/.test(path)
         || /[?&](?:product_id|product|sku)=/i.test(url.search);
     } catch { return false; }
   };
