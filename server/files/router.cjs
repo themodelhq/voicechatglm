@@ -109,10 +109,44 @@ async function privateIdentity(req, cfg, requireCsrf) {
 }
 function requireProductionOrigin(req, origin, cfg) { return !['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method || '') || Boolean(origin && allowOrigin(origin, cfg)); }
 async function loadRecords(store, files, policy, signal, env = process.env) {
-  const output = []; const configuration = ocrConfig(env); for (const file of files) { if (!cleanScannedFile(file)) throw Object.assign(new Error('This attachment has not completed mandatory malware scanning.'), { code: 'FILE_NOT_CLEAN' }); if (!file.extractionStorageKey) throw Object.assign(new Error('The private extraction artifact is unavailable.'), { code: 'ANALYSIS_UNAVAILABLE' }); const artifact = await store.getJson(file.extractionStorageKey, Math.max(policy.maxExtractedCharacters * Math.max(1, policy.maxFilesPerMessage) * 4, 512 * 1024), signal); if (!artifact?.extraction) throw Object.assign(new Error('The private extraction artifact is invalid.'), { code: 'ANALYSIS_UNAVAILABLE' }); let extraction = artifact.extraction;
-    const needsSharedProcessing = supportedOcrType(file.type, file.contentType) && !extraction?.processing?.engine;
-    if (needsSharedProcessing) { if (!configuration.available) { if (String(file.type).toLowerCase() !== 'pdf' || !String(extraction.text || '').trim()) throw Object.assign(new Error(configuration.reason || 'OCR is unavailable for this attachment.'), { code: 'OCR_UNAVAILABLE' }); extraction = { ...extraction, truncated: true, notices: [...(extraction.notices || []), 'Native PDF text was extracted, but OCR is unavailable so scanned pages may be omitted.'] }; } else { const bytes = await store.getBuffer(file.storageKey, policy.maxIndividualBytes, signal); const processed = await processOcrDocument({ bytes, filename: file.filename, type: file.type, contentType: file.contentType, configuration, signal, maximumCharacters: policy.maxExtractedCharacters }); extraction = redactStandaloneExtraction(processed.extraction, file.filename); artifact.extraction = extraction; await store.putJson(file.extractionStorageKey, artifact, signal); } }
-    output.push({ ...file, extraction, archive: artifact.archive }); } return output;
+  const output = []; const configuration = ocrConfig(env);
+  for (const file of files) {
+    let substage = 'validate_file_scan_status';
+    try {
+      if (!cleanScannedFile(file)) throw Object.assign(new Error('This attachment has not completed mandatory malware scanning.'), { code: 'FILE_NOT_CLEAN' });
+      substage = 'validate_extraction_storage_key';
+      if (!file.extractionStorageKey) throw Object.assign(new Error('The private extraction artifact is unavailable.'), { code: 'ANALYSIS_UNAVAILABLE' });
+      substage = 'read_extraction_artifact';
+      const artifact = await store.getJson(file.extractionStorageKey, Math.max(policy.maxExtractedCharacters * Math.max(1, policy.maxFilesPerMessage) * 4, 512 * 1024), signal);
+      substage = 'validate_extraction_artifact';
+      if (!artifact?.extraction || typeof artifact.extraction !== 'object') throw Object.assign(new Error('The private extraction artifact is invalid.'), { code: 'ANALYSIS_UNAVAILABLE' });
+      let extraction = artifact.extraction;
+      substage = 'check_ocr_requirements';
+      const needsSharedProcessing = supportedOcrType(file.type, file.contentType) && !extraction?.processing?.engine;
+      if (needsSharedProcessing) {
+        if (!configuration.available) {
+          if (String(file.type).toLowerCase() !== 'pdf' || !String(extraction.text || '').trim()) throw Object.assign(new Error(configuration.reason || 'OCR is unavailable for this attachment.'), { code: 'OCR_UNAVAILABLE' });
+          extraction = { ...extraction, truncated: true, notices: [...(extraction.notices || []), 'Native PDF text was extracted, but OCR is unavailable so scanned pages may be omitted.'] };
+        } else {
+          substage = 'read_original_for_ocr';
+          const bytes = await store.getBuffer(file.storageKey, policy.maxIndividualBytes, signal);
+          substage = 'process_ocr';
+          const processed = await processOcrDocument({ bytes, filename: file.filename, type: file.type, contentType: file.contentType, configuration, signal, maximumCharacters: policy.maxExtractedCharacters });
+          substage = 'redact_ocr_extraction';
+          extraction = redactStandaloneExtraction(processed.extraction, file.filename);
+          artifact.extraction = extraction;
+          substage = 'persist_ocr_extraction_artifact';
+          await store.putJson(file.extractionStorageKey, artifact, signal);
+        }
+      }
+      substage = 'append_loaded_record';
+      output.push({ ...file, extraction, archive: artifact.archive });
+    } catch (error) {
+      if (error && typeof error === 'object' && typeof error.analysisSubstage !== 'string') error.analysisSubstage = substage;
+      throw error;
+    }
+  }
+  return output;
 }
 async function productionFileHandler(req, res, cfg, providerRequest) {
   const url = new URL(req.url, 'http://files.local'); const pathname = url.pathname; const origin = req.headers.origin; const feature = fileAnalysisConfig(process.env);
