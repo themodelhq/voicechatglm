@@ -38,7 +38,7 @@ async function discoverSitemapProducts({ urls, configuration = webRetrievalConfi
   const maxProducts = Math.max(1, Math.min(20000, Number(configuration.maxLinks) || 10000));
   const hostRoots = [...new Set((urls || []).map(value => { try { const u = new URL(value); return u.origin; } catch { return undefined; } }).filter(Boolean))];
   for (const root of hostRoots) {
-    for (const path of ['/sitemap.xml','/sitemap_index.xml','/sitemap-index.xml','/wp-sitemap.xml','/product-sitemap.xml','/wp-sitemap-posts-product-1.xml','/sitemap_products_1.xml','/xmlsitemap.php']) queue.push(new URL(path, root).toString());
+    for (const path of ['/sitemap.xml','/sitemap_index.xml','/sitemap-index.xml','/wp-sitemap.xml','/product-sitemap.xml','/wp-sitemap-posts-product-1.xml','/sitemap_products_1.xml','/xmlsitemap.php?type=products']) queue.push(new URL(path, root).toString());
   }
   const addLocs = value => {
     if (!value) return [];
@@ -58,6 +58,7 @@ async function discoverSitemapProducts({ urls, configuration = webRetrievalConfi
       const xml = response.body.toString('utf8');
       if (!/^\s*(?:<\?xml|<urlset|<sitemapindex)/i.test(xml)) continue;
       const parsed = parser.parse(xml);
+      const productSitemap = /product/i.test(new URL(key).pathname) || /xmlsitemap\.php\?type=products/i.test(key);
       const index = parsed.sitemapindex;
       if (index) {
         for (const loc of addLocs(index.sitemap)) if (queue.length + visitedMaps.size < maxMaps * 4) queue.push(loc);
@@ -70,7 +71,7 @@ async function discoverSitemapProducts({ urls, configuration = webRetrievalConfi
         if (!hostRoots.some(root => { try { return target.origin === root; } catch { return false; } })) continue;
         const path = target.pathname.toLowerCase();
         if (/\.(?:jpg|jpeg|png|gif|webp|svg|pdf|xml|css|js)$/i.test(path)) continue;
-        if (/(?:product|item|sku|variant)/i.test(path) || /[?&](?:product_id|product|sku)=/i.test(target.search)) discovered.add(target.toString());
+        if (productSitemap || /(?:product|item|sku|variant)/i.test(path) || /[?&](?:product_id|product|sku)=/i.test(target.search)) discovered.add(target.toString());
         if (discovered.size >= maxProducts) break;
       }
     } catch (error) {
