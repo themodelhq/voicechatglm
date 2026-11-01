@@ -115,7 +115,9 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
         productPagesVisited,
         productUrlsDiscovered: productQueued.size,
         productUrlsRemaining: productQueue.length,
-        discoveryPagesRemaining: discoveryQueue.length
+        discoveryPagesRemaining: discoveryQueue.length,
+        backgroundMode: Boolean(background), configuredPageLimit,
+        effectivePageLimit: maxPages, discoveryPageLimit: maxDiscoveryPages
       }
     });
   }
