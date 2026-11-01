@@ -54,8 +54,44 @@ function productionPublicFile(record) {
   return { id: record.id, filename: record.filename, type: record.type, size: record.size, state: status, processingStatus: status, analysisAvailable: Boolean(metadata.analysisAvailable), inspectionAvailable: Boolean(metadata.inspectionAvailable), contentAnalysisAvailable: Boolean(metadata.contentAnalysisAvailable), notices: Array.isArray(metadata.notices) ? metadata.notices : [], sources: Array.isArray(metadata.sources) ? metadata.sources : [], truncated: Boolean(metadata.truncated), uploadedAt: record.createdAt, expiresAt: record.expiresAt, ...(metadata.archive ? { archive: metadata.archive } : {}) };
 }
 function productionError(res, error, origin, cfg) {
-  const code = error?.code; const status = code === 'CANCELLED' ? 499 : code === 'TIMEOUT' || code === 'OCR_TIMEOUT' || code === 'OCR_PDF_TIMEOUT' ? 504 : code === 'MALWARE_FOUND' ? 422 : code === 'FILE_TOO_LARGE' ? 413 : code === 'SCANNER_UNAVAILABLE' || code === 'STORAGE_UNAVAILABLE' || code === 'OCR_UNAVAILABLE' || code === 'OCR_PDF_RENDERER_UNAVAILABLE' ? 503 : code === 'FILE_NOT_CLEAN' || code === 'ANALYSIS_UNAVAILABLE' || code?.startsWith?.('OCR_') ? 422 : code === 'MODEL_ERROR' && error.status ? error.status : 400;
-  const message = code === 'CANCELLED' ? 'File processing was cancelled.' : code === 'MALWARE_FOUND' ? 'The file was rejected by the malware scanner.' : code === 'FILE_TOO_LARGE' ? 'The file exceeds the configured malware-scanning size limit.' : code === 'SCANNER_UNAVAILABLE' ? 'The malware scanner is temporarily unavailable.' : code === 'STORAGE_UNAVAILABLE' ? 'Private file storage is temporarily unavailable.' : code === 'FILE_NOT_CLEAN' ? 'The attachment has not completed mandatory malware scanning.' : code === 'OCR_UNAVAILABLE' || code === 'OCR_PDF_RENDERER_UNAVAILABLE' ? 'OCR processing is temporarily unavailable for this attachment.' : code === 'ANALYSIS_UNAVAILABLE' || code?.startsWith?.('OCR_') ? error.message : code === 'TIMEOUT' ? 'File processing timed out.' : 'The file request could not be completed.';
+  const code = typeof error?.code === 'string' ? error.code : undefined;
+  const knownClientError = code === 'CANCELLED' || code === 'MALWARE_FOUND' || code === 'FILE_TOO_LARGE' || code === 'FILE_NOT_CLEAN' || code === 'ANALYSIS_UNAVAILABLE' || code?.startsWith?.('OCR_');
+  const status = code === 'CANCELLED' ? 499
+    : code === 'TIMEOUT' || code === 'OCR_TIMEOUT' || code === 'OCR_PDF_TIMEOUT' ? 504
+    : code === 'MALWARE_FOUND' || code === 'FILE_NOT_CLEAN' || code === 'ANALYSIS_UNAVAILABLE' || code?.startsWith?.('OCR_') ? 422
+    : code === 'FILE_TOO_LARGE' ? 413
+    : code === 'SCANNER_UNAVAILABLE' || code === 'STORAGE_UNAVAILABLE' || code === 'OCR_UNAVAILABLE' || code === 'OCR_PDF_RENDERER_UNAVAILABLE' || code === 'CONVERSATION_STORAGE' ? 503
+    : code === 'MODEL_ERROR' && Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599 ? error.status
+    : knownClientError ? 400 : 500;
+  const message = code === 'CANCELLED' ? 'File processing was cancelled.'
+    : code === 'MALWARE_FOUND' ? 'The file was rejected by the malware scanner.'
+    : code === 'FILE_TOO_LARGE' ? 'The file exceeds the configured malware-scanning size limit.'
+    : code === 'SCANNER_UNAVAILABLE' ? 'The malware scanner is temporarily unavailable.'
+    : code === 'STORAGE_UNAVAILABLE' ? 'Private file storage is temporarily unavailable.'
+    : code === 'FILE_NOT_CLEAN' ? 'The attachment has not completed mandatory malware scanning.'
+    : code === 'OCR_UNAVAILABLE' || code === 'OCR_PDF_RENDERER_UNAVAILABLE' ? 'OCR processing is temporarily unavailable for this attachment.'
+    : code === 'ANALYSIS_UNAVAILABLE' || code?.startsWith?.('OCR_') ? error.message
+    : code === 'TIMEOUT' ? 'File processing timed out.'
+    : code === 'MODEL_ERROR' ? 'The model analysis request could not be completed.'
+    : 'The file request could not be completed.';
+
+  // Correlate unexpected production failures without logging document contents,
+  // request bodies, cookies, authorization headers, or storage credentials.
+  if (status >= 500) {
+    const requestId = randomUUID();
+    try { res.setHeader('X-Request-ID', requestId); } catch {}
+    const stackFrames = typeof error?.stack === 'string'
+      ? error.stack.split('\\n').slice(1).map(line => line.trim()).slice(0, 12)
+      : [];
+    console.error(JSON.stringify({
+      event: 'file_request_failed',
+      requestId,
+      code: code || 'UNCLASSIFIED_ERROR',
+      errorName: typeof error?.name === 'string' ? error.name : 'Error',
+      status,
+      stackFrames
+    }));
+  }
   safeError(res, status, message, origin, cfg);
 }
 async function privateIdentity(req, cfg, requireCsrf) {
