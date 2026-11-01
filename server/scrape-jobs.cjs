@@ -74,7 +74,7 @@ async function processJob(job) {
   if(job.assistant_message_id) {
     const warning=workflow.partial?` Coverage is partial: ${workflow.crawl?.queuedButNotVisited||0} discovered page(s) were not visited and ${workflow.failures.length} page(s) failed.`:'';
     const content=`The website crawl retrieved ${workflow.pages.length} pages and extracted ${count} product record(s). The Excel workbook is ready.${warning}\n\nThe workbook includes product names, descriptions, prices, SKUs, brands, availability, product URLs and image URLs where exposed by the website.`;
-    await repository.updateConversationMessage({userId:job.user_id,conversationId:job.conversation_id,id:job.assistant_message_id,content,status:workflow.partial?'partial':'complete',metadata:{route:'website_scraping',artifacts:[{id:artifact.id,filename:artifact.filename,format:'xlsx',contentType:artifact.contentType,size:artifact.size}],scrapeJobId:job.id}}).catch(()=>undefined);
+    await repository.updateConversationMessage({userId:job.user_id,conversationId:job.conversation_id,id:job.assistant_message_id,content,status:workflow.partial?'partial':'complete',metadata:{route:'website_scraping',artifacts:[{id:artifact.id,filename:artifact.displayFilename||artifact.filename,format:'xlsx',contentType:artifact.contentType,size:artifact.size,status:artifact.status||'available',checksum:artifact.checksum,preview:artifact.preview,createdAt:artifact.createdAt,expiresAt:artifact.expiresAt,messageId:artifact.messageId}],scrapeJobId:job.id}}).catch(()=>undefined);
   }
 }
 async function failJob(job,error) {
