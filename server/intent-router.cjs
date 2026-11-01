@@ -32,9 +32,15 @@ function productCataloguePayload(message, workflow = {}) {
   const seen = new Set(); const products = [];
   for (const page of workflow.pages) for (const item of page.products || []) {
     const productUrl = item.url || page.finalUrl || page.url;
-    const key = String(item.sku || productUrl + '|' + item.name).toLowerCase();
+    let parsedUrl;
+    try { parsedUrl = new URL(productUrl); } catch { continue; }
+    if (!/\/(?:product|products|produit|produits|artikel|produto)\/[^/]+\/?$/i.test(parsedUrl.pathname) || /\/product-category\//i.test(parsedUrl.pathname)) continue;
+    const productName = String(item.name || '').replace(/\s+/g, ' ').trim();
+    if (!productName || /^(?:choix des options|select options|add to cart|ajouter au panier|quick view|compare|wishlist|femme|homme|enfant|robes|abayas|ensembles)$/i.test(productName)) continue;
+    parsedUrl.hash = '';
+    const key = parsedUrl.toString().toLowerCase();
     if (seen.has(key)) continue; seen.add(key);
-    products.push([item.name || page.title || '', item.description || page.description || '', item.price || '', item.currency || '', item.availability || '', item.sku || '', item.brand || '', item.rating || '', item.reviewCount || '', productUrl, (item.imageUrls && item.imageUrls.length ? item.imageUrls : page.products?.length === 1 ? page.imageUrls || [] : []).join(' | ')]);
+    products.push([productName, item.description || '', item.price || '', item.currency || '', item.availability || '', item.sku || '', item.brand || '', item.rating || '', item.reviewCount || '', productUrl, (item.imageUrls && item.imageUrls.length ? item.imageUrls : page.products?.length === 1 ? page.imageUrls || [] : []).join(' | ')]);
   }
   const headers = ['Product Name','Description','Price','Currency','Availability','SKU','Brand','Rating','Review Count','Product URL','Image URLs'];
   const warning = workflow.partial ? ' Coverage is partial: ' + workflow.crawl.queuedButNotVisited + ' discovered page(s) were not visited and ' + workflow.failures.length + ' page(s) failed.' : '';
