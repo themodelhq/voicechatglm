@@ -26,7 +26,7 @@ async function claimJob() {
     await client.query('BEGIN');
     const result = await client.query(`SELECT * FROM website_scrape_jobs
       WHERE status='queued' OR (status='running' AND lease_expires_at < NOW())
-      ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1`);
+      ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED`);
     const row = result.rows[0];
     if (!row) { await client.query('COMMIT'); return undefined; }
     await client.query(`UPDATE website_scrape_jobs SET status='running',worker_id=$2,
@@ -57,7 +57,7 @@ function catalogueRows(workflow) {
 async function processJob(job) {
   const env=process.env, cfg=webRetrievalConfig(env);
   if(!cfg.enabled||!cfg.configured) throw Object.assign(new Error('Website retrieval is disabled or misconfigured.'),{code:'CAPABILITY_UNAVAILABLE'});
-  const workflow=await runScrape({urls:Array.isArray(job.seed_urls)?job.seed_urls:[],retrievalConfiguration:cfg});
+  const workflow=await runScrape({urls:Array.isArray(job.seed_urls)?job.seed_urls:[],retrievalConfiguration:cfg,onProgress:snapshot=>updateProgress(job.id,snapshot)});
   const rows=catalogueRows(workflow), count=Math.max(0,rows.length-1);
   if(!count) throw Object.assign(new Error('No structured product records were extracted from the retrieved pages.'),{code:'NO_PRODUCTS'});
   const artifacts=artifactConfig(env);
