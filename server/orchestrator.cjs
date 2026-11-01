@@ -1,6 +1,6 @@
 /* Bounded, deterministic orchestration. Plans are generated from server rules only;
  * model output is never treated as executable instructions. */
-const { searchWeb, sourcesForModel } = require('./web-search.cjs'); const { retrievePage, discoverSitemapProducts } = require('./web-retrieval.cjs');
+const { searchWeb, sourcesForModel } = require('./web-search.cjs'); const { retrievePage } = require('./web-retrieval.cjs');
 const MAX_WORKFLOW_STEPS = 8; const MAX_RESEARCH_SOURCES = 5;
 function assertNotCancelled(signal) { if (signal?.aborted) throw Object.assign(new Error('The workflow was cancelled.'), { code: 'CANCELLED', status: 499 }); }
 function boundedMap(values, concurrency, operation, signal) { return new Promise((resolve, reject) => { const results = new Array(values.length); let next = 0; let active = 0; let done = 0; let rejected = false; const launch = () => { if (done === values.length) return resolve(results); while (active < concurrency && next < values.length && !rejected) { const index = next++; active += 1; Promise.resolve().then(() => { assertNotCancelled(signal); return operation(values[index], index); }).then(value => { results[index] = { ok: true, value }; }).catch(error => { if (signal?.aborted || error?.code === 'CANCELLED') { rejected = true; reject(Object.assign(new Error('The workflow was cancelled.'), { code: 'CANCELLED', status: 499 })); return; } results[index] = { ok: false, error: error?.code || 'RETRIEVAL_FAILED', message: 'This source could not be retrieved.' }; }).finally(() => { active -= 1; done += 1; if (!rejected) launch(); }); } }; launch(); }); }
@@ -13,11 +13,11 @@ function sameSite(left, right) { try { const a = new URL(left); const b = new UR
 function crawlPriority(value) { const path = (() => { try { return new URL(value).pathname.toLowerCase(); } catch { return ''; } })(); if (/\/(products?|product-detail|item)\//.test(path)) return 0; if (/\/(collections?|categories|catalog|shop|store|products?)\b/.test(path)) return 1; if (/[?&](page|paged|p)=\d+/i.test(value) || /\/(page|pages)\//.test(path)) return 2; return 3; }
 async function runScrape({ urls, retrievalConfiguration, signal, retrievalOptions, onProgress }) {
   if (!Array.isArray(urls) || !urls.length) throw Object.assign(new Error('Provide at least one HTTP or HTTPS URL to retrieve.'), { code: 'CLARIFICATION_REQUIRED', status: 400 });
-  const maxPages = Math.max(1, Math.min(5000, Number(retrievalConfiguration.maxPages) || 1000));
+  const maxPages = 3;
   const maxLinks = Math.max(1, Math.min(20_000, Number(retrievalConfiguration.maxLinks) || 10_000));
   // Product catalogue mode: fetch a small set of discovery/listing pages, then
   // retrieve only URLs that look like individual product pages.
-  const maxDiscoveryPages = Math.max(5, Math.min(100, Number(retrievalConfiguration.maxDiscoveryPages) || 40));
+  const maxDiscoveryPages = 3;
   const seeds = urls.map(canonicalPageUrl).filter(Boolean);
   const hosts = new Set(seeds.map(value => new URL(value).hostname.toLowerCase()));
   const productQueue = [];
@@ -55,8 +55,6 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   };
   let discoveryVisited = 0;
   let productPagesVisited = 0;
-  const platformDiscovery = await discoverSitemapProducts({ urls: seeds, configuration: retrievalConfiguration, signal, ...retrievalOptions });
-  for (const productUrlFromMap of platformDiscovery.productUrls) enqueueProduct(productUrlFromMap);
   while ((discoveryQueue.length || productQueue.length) && pages.length + failures.length < maxPages) {
     assertNotCancelled(signal);
     // Always finish catalogue discovery before consuming the product queue. This
@@ -109,9 +107,6 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
         discoveryPagesVisited: discoveryVisited,
         productPagesVisited,
         productUrlsDiscovered: productQueued.size,
-        detectedPlatforms: platformDiscovery.platforms,
-        sitemapsVisited: platformDiscovery.sitemapsVisited,
-        sitemapLimitReached: platformDiscovery.sitemapLimitReached,
         productUrlsRemaining: productQueue.length,
         discoveryPagesRemaining: discoveryQueue.length
       }
@@ -130,7 +125,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
       queuedButNotVisited: remaining, discoveryPagesVisited: discoveryVisited,
       productPagesVisited, productUrlsDiscovered: productQueued.size,
       productUrlsRemaining: productQueue.length, discoveryPagesRemaining: discoveryQueue.length,
-      discoveryPageLimit: maxDiscoveryPages, pageLimit: maxPages, productRecordsFound: products, detectedPlatforms: platformDiscovery.platforms, sitemapsVisited: platformDiscovery.sitemapsVisited, sitemapLimitReached: platformDiscovery.sitemapLimitReached
+      discoveryPageLimit: maxDiscoveryPages, pageLimit: maxPages, productRecordsFound: products
     }
   };
 }
