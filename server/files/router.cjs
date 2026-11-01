@@ -86,6 +86,7 @@ function productionError(res, error, origin, cfg) {
       : [];
     const errorName = typeof error?.name === 'string' && /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(error.name) ? error.name : 'Error';
     const diagnosticCode = code && /^[A-Z0-9_]{1,64}$/.test(code) ? code : 'UNCLASSIFIED_ERROR';
+    const storageDiagnostic = error?.storageStage ? { storage_stage: error.storageStage, ...(Number.isInteger(error.storageStatus) ? { storage_status: error.storageStatus } : {}), ...(typeof error.storageCauseName === 'string' ? { storage_cause_type: error.storageCauseName } : {}), ...(typeof error.storageCauseCode === 'string' ? { storage_cause_code: error.storageCauseCode } : {}), ...(typeof error.storageRequestId === 'string' ? { storage_request_id: error.storageRequestId } : {}) } : {};
     console.error(JSON.stringify({
       event: 'file_request_failed',
       requestId,
@@ -99,7 +100,7 @@ function productionError(res, error, origin, cfg) {
     return send(res, status, {
       error: message,
       request_id: requestId,
-      diagnostic: { code: diagnosticCode, type: errorName, ...(typeof error?.analysisStage === 'string' ? { stage: error.analysisStage } : {}), ...(typeof error?.analysisSubstage === 'string' ? { substage: error.analysisSubstage } : {}) }
+      diagnostic: { code: diagnosticCode, type: errorName, ...(typeof error?.analysisStage === 'string' ? { stage: error.analysisStage } : {}), ...(typeof error?.analysisSubstage === 'string' ? { substage: error.analysisSubstage } : {}), ...storageDiagnostic }
     }, origin, cfg);
   }
   safeError(res, status, message, origin, cfg);
