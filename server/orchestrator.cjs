@@ -110,7 +110,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   const products = pages.reduce((total, page) => total + (page.products?.length || 0), 0);
   const remaining = discoveryQueue.length + productQueue.length;
   const hasMore = remaining > 0;
-  const partial = Boolean(failures.length || hasMore || discoveryVisited >= maxDiscoveryPages || (background && pages.length + failures.length >= maxPages));
+  const partial = Boolean(failures.length || hasMore || (background && pages.length + failures.length >= maxPages));
   const nextState = { seeds, hosts:[...hosts], discoveryQueue, discoveryQueued:[...discoveryQueued], productQueue, productQueued:[...productQueued], visited:[...visited], pages:pages.map(page=>({url:page.url,requestedUrl:page.requestedUrl,finalUrl:page.finalUrl,title:page.title,pageType:page.pageType,products:page.products||[]})), failures, discoveryVisited, productPagesVisited };
   const steps = pages.map((page, index) => ({ id: `retrieve_${index + 1}`, operation: 'website_retrieval', inputs: { url: page.requestedUrl || page.url }, output: 'page_extraction', onError: 'partial', cancellable: true }));
   if (!pages.length) throw Object.assign(new Error('No requested page could be retrieved under the configured safety policy.'), { code: failures[0]?.code || 'RETRIEVAL_FAILED', status: 422, failures });
