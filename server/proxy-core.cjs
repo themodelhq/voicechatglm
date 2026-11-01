@@ -242,8 +242,8 @@ async function execute(route, method, body, meta = {}, env = process.env) { cons
       const errorName = typeof caught?.name === 'string' && /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(caught.name) ? caught.name : undefined;
       const causeCode = typeof caught?.cause?.code === 'string' && /^[A-Z0-9_]{1,64}$/.test(caught.cause.code) ? caught.cause.code : undefined;
       const rawErrorMessage = typeof caught?.message === 'string' ? caught.message : '';
-      const safeErrorMessage = rawErrorMessage.replace(/https?:\\/\\/[^\\s]+/gi, '[URL]').replace(/(authorization|token|secret|api[_-]?key)(\\s*[:=]\\s*)[^\\s,;]+/gi, '$1$2[REDACTED]').replace(/[\\r\\n\\t]+/g, ' ').slice(0, 240);
-      const stackFrames = typeof caught?.stack === 'string' ? caught.stack.split('\\n').slice(1, 5).map(line => line.trim().slice(0, 240)) : undefined;
+      const safeErrorMessage = rawErrorMessage.replace(/https?:\/\/[^\s]+/gi, '[URL]').replace(/(authorization|token|secret|api[_-]?key)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[REDACTED]').replace(/[\r\n\t]+/g, ' ').slice(0, 240);
+      const stackFrames = typeof caught?.stack === 'string' ? caught.stack.split('\n').slice(1, 5).map(line => line.trim().slice(0, 240)) : undefined;
       const diagnostic = { code: String(code || 'REQUEST_FAILED').slice(0, 80), ...(errorName ? { error_name: errorName } : {}), ...(causeCode ? { cause_code: causeCode } : {}), ...(safeErrorMessage ? { error_message: safeErrorMessage } : {}), ...(failedSources?.length ? { failed_sources: failedSources } : {}) };
       if (!code) console.error('[VoiceChatGLM] Unclassified chat failure', { errorName: errorName || 'Error', causeCode: causeCode || undefined, errorMessage: safeErrorMessage || undefined, stackFrames, status: Number.isInteger(status) ? status : undefined });
       return response(Number.isInteger(status) && status >= 400 && status < 600 ? status : code === 'CANCELLED' ? 499 : 502, { error: message, diagnostic }, origin, cfg, caught?.retryAfter ? { 'Retry-After': String(Math.max(1, caught.retryAfter)) } : undefined);
