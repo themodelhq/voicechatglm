@@ -13,11 +13,11 @@ function sameSite(left, right) { try { const a = new URL(left); const b = new UR
 function crawlPriority(value) { const path = (() => { try { return new URL(value).pathname.toLowerCase(); } catch { return ''; } })(); if (/\/(products?|product-detail|item)\//.test(path)) return 0; if (/\/(collections?|categories|catalog|shop|store|products?)\b/.test(path)) return 1; if (/[?&](page|paged|p)=\d+/i.test(value) || /\/(page|pages)\//.test(path)) return 2; return 3; }
 async function runScrape({ urls, retrievalConfiguration, signal, retrievalOptions, onProgress }) {
   if (!Array.isArray(urls) || !urls.length) throw Object.assign(new Error('Provide at least one HTTP or HTTPS URL to retrieve.'), { code: 'CLARIFICATION_REQUIRED', status: 400 });
-  const maxPages = Math.max(1, Math.min(5000, Number(retrievalConfiguration.maxPages) || 1000));
+  const maxPages = 3;
   const maxLinks = Math.max(1, Math.min(20_000, Number(retrievalConfiguration.maxLinks) || 10_000));
   // Product catalogue mode: fetch a small set of discovery/listing pages, then
   // retrieve only URLs that look like individual product pages.
-  const maxDiscoveryPages = Math.max(5, Math.min(100, Number(retrievalConfiguration.maxDiscoveryPages) || 40));
+  const maxDiscoveryPages = 2;
   const seeds = urls.map(canonicalPageUrl).filter(Boolean);
   const hosts = new Set(seeds.map(value => new URL(value).hostname.toLowerCase()));
   const productQueue = [];
