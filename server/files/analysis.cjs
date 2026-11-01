@@ -58,6 +58,7 @@ function deterministicCsvAnswer(records, question) {
       ? `Found **${selected.length}** of **${total}** product records with a populated FDA column. Placeholder values excluded: blank, N/A, NA, NIL, NULL, NONE, NOT APPLICABLE and dashes.\\n\\n${table}\\n\\nSource row numbers refer to the original CSV, starting at row 2.`
       : `No product records have a populated FDA column. Checked all ${total} product records.`,
     sources: [{ filename: csvRecord.filename, location: `Complete CSV data rows 2–${rows.length + 1}`, truncated: false }],
+    exportData: { baseFilename: String(csvRecord.filename || 'fda_populated_products').replace(/\\.[^.]*$/, '').replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 100) || 'fda_populated_products', headers: outputHeaders, rows: output },
     truncated: false, partial: false, coverage: [], analysisWindows: 0,
     retention: 'The original object and structured extraction artifact remain private and available only to the owner until expiry or deletion.'
   };
