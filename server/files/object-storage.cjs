@@ -35,7 +35,29 @@ function createObjectStore(configuration) {
     async putBuffer(key, buffer, contentType, signal) { await put(key, buffer, contentType, signal); },
     async putJson(key, value, signal) { await put(key, Buffer.from(JSON.stringify(value), 'utf8'), 'application/json', signal); },
     getBuffer,
-    async getJson(key, maxBytes, signal) { return JSON.parse((await getBuffer(key, maxBytes, signal)).toString('utf8')); },
+    async getJson(key, maxBytes, signal) {
+      let bytes;
+      try { bytes = await getBuffer(key, maxBytes, signal); }
+      catch (error) {
+        const status = Number(error?.$metadata?.httpStatusCode || error?.statusCode || error?.status);
+        const name = String(error?.name || error?.code || '');
+        const missing = status === 404 || /NoSuchKey|NotFound|NoSuchObject/i.test(name);
+        const denied = status === 403 || /AccessDenied|Forbidden/i.test(name);
+        const code = missing ? 'STORAGE_OBJECT_NOT_FOUND' : denied ? 'STORAGE_ACCESS_DENIED' : error?.code === 'CANCELLED' ? 'CANCELLED' : 'STORAGE_OBJECT_READ_FAILED';
+        const wrapped = new Error(missing ? 'Private extraction object was not found.' : denied ? 'Private extraction object access was denied.' : 'Private extraction object could not be read.');
+        wrapped.code = code;
+        wrapped.storageStatus = Number.isInteger(status) ? status : undefined;
+        wrapped.cause = error;
+        throw wrapped;
+      }
+      try { return JSON.parse(bytes.toString('utf8')); }
+      catch (error) {
+        const wrapped = new Error('Private extraction object is not valid JSON.');
+        wrapped.code = 'STORAGE_INVALID_JSON';
+        wrapped.cause = error;
+        throw wrapped;
+      }
+    },
     async promote(fromKey, toKey, contentType, signal) { await send(new CopyObjectCommand({ Bucket: configuration.bucket, CopySource: `${encodeURIComponent(configuration.bucket)}/${fromKey.split('/').map(encodeURIComponent).join('/')}`, Key: toKey, ContentType: contentType, MetadataDirective: 'REPLACE', ServerSideEncryption: 'AES256', CacheControl: 'private, no-store' }), signal); await remove(fromKey, signal); },
     async delete(key, signal) { await remove(key, signal); },
   };
