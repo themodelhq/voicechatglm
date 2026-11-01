@@ -25,7 +25,7 @@ async function claimJob() {
   try {
     await client.query('BEGIN');
     const result = await client.query(`SELECT * FROM website_scrape_jobs
-      WHERE status='queued' OR (status='running' AND lease_expires_at < NOW())
+      WHERE (status='queued' OR (status='running' AND lease_expires_at < NOW()))
       ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED`);
     const row = result.rows[0];
     if (!row) { await client.query('COMMIT'); return undefined; }
@@ -90,9 +90,9 @@ let active=false, stopped=false, timer;
 async function tick() {
   if(active||stopped) return; active=true;
   try { const job=await claimJob(); if(job) { try { await processJob(job); } catch(error) { await failJob(job,error).catch(()=>undefined); } } }
-  catch { /* A transient database failure is retried on the next poll. */ }
+  catch (error) { console.error('[VoiceChatGLM scrape-worker] Queue poll/claim failed; will retry.', { name: error?.name || 'Error', code: error?.code, message: String(error?.message || 'unknown').replace(/[\\r\\n\\t]+/g, ' ').slice(0, 240) }); }
   finally { active=false; }
 }
-function startScrapeWorker() { if(timer) return ()=>stopScrapeWorker(); stopped=false; timer=setInterval(()=>void tick(),POLL_MS); timer.unref?.(); void tick(); return ()=>stopScrapeWorker(); }
+function startScrapeWorker() { if(timer) return ()=>stopScrapeWorker(); stopped=false; console.info('[VoiceChatGLM scrape-worker] Started queue polling.', { pollMs: POLL_MS, leaseMs: LEASE_MS }); timer=setInterval(()=>void tick(),POLL_MS); void tick(); return ()=>stopScrapeWorker(); }
 function stopScrapeWorker() { stopped=true; if(timer) clearInterval(timer); timer=undefined; }
 module.exports={enqueueScrapeJob,getScrapeJob,startScrapeWorker,stopScrapeWorker,publicJob};
