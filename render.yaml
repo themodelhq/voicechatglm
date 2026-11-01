@@ -317,3 +317,53 @@ services:
         value: "500000"
       - key: KNOWLEDGE_SEMANTIC_ENABLED
         value: "false"
+
+  # Dedicated durable website-scraping worker. It shares the API database and private
+  # object store but runs independently of HTTP requests and browser connections.
+  - type: worker
+    name: voicechatglm-scrape-worker
+    runtime: node
+    plan: starter
+    buildCommand: npm ci --omit=dev
+    startCommand: node server/scrape-worker.cjs
+    envVars:
+      - key: NODE_VERSION
+        value: "20.20.2"
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SSL_MODE
+        value: auto
+      - key: WEB_SCRAPING_ENABLED
+        value: "true"
+      - key: WEB_SCRAPING_ROBOTS_POLICY
+        value: respect
+      - key: WEB_SCRAPING_TIMEOUT_MS
+        value: "10000"
+      - key: WEB_SCRAPING_MAX_RESPONSE_BYTES
+        value: "1000000"
+      - key: WEB_SCRAPING_MAX_PAGES_PER_REQUEST
+        value: "1000"
+      - key: WEB_SCRAPING_MAX_LINKS
+        value: "10000"
+      - key: WEB_SCRAPING_CONCURRENCY
+        value: "2"
+      - key: WEB_SCRAPING_MAX_REDIRECTS
+        value: "3"
+      - key: FILE_STORAGE_S3_BUCKET
+        sync: false
+      - key: FILE_STORAGE_S3_REGION
+        sync: false
+      - key: FILE_STORAGE_S3_ENDPOINT
+        sync: false
+      - key: FILE_STORAGE_S3_ACCESS_KEY_ID
+        sync: false
+      - key: FILE_STORAGE_S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: FILE_STORAGE_S3_FORCE_PATH_STYLE
+        value: "true"
+      - key: ARTIFACT_DELIVERY_ENABLED
+        value: "true"
+      - key: ARTIFACT_RETENTION_HOURS
+        value: "720"
