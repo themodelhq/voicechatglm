@@ -44,7 +44,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   const enqueueProduct = value => {
     const canonical = canonicalPageUrl(value);
     if (!canonical || !hosts.has(new URL(canonical).hostname.toLowerCase()) || productQueued.has(canonical) || visited.has(canonical)) return;
-    if (productQueue.length + productQueued.size >= maxLinks) return;
+    if (productQueued.size >= maxLinks) return;
     productQueued.add(canonical); productQueue.push(canonical);
   };
   const enqueueDiscovery = value => {
@@ -95,7 +95,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
         if (!canonical || !hosts.has(new URL(canonical).hostname.toLowerCase())) continue;
         const parsed = new URL(canonical);
         if (/\\.(?:pdf|zip|png|jpe?g|gif|webp|svg|mp4|mp3|css|js|xml)(?:$|\?)/i.test(parsed.pathname)) continue;
-        if (productUrl(canonical)) enqueueProduct(canonical);
+        if (link.productCandidate || productUrl(canonical)) enqueueProduct(canonical);
         else if (phase === 'discovery' && discoveryVisited < maxDiscoveryPages) enqueueDiscovery(canonical);
       }
     }
