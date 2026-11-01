@@ -186,7 +186,7 @@ function ScrapeProgress({ progress }: { progress: NonNullable<Message['scrapePro
     preparing_workbook: 'Preparing the Excel workbook',
     completed: 'Completed'
   };
-  const phase = phaseLabels[progress.phase || ''] || (progress.status === 'queued' ? 'Waiting for a worker to start' : progress.status === 'running' ? 'Retrieving website pages' : progress.status === 'partial' ? 'Completed with partial coverage' : progress.status === 'failed' ? 'Crawl failed' : 'Working');
+  const phase = phaseLabels[progress.phase || ''] || (progress.status === 'queued' ? 'Preparing the next crawl batch' : progress.status === 'running' ? 'Retrieving website pages' : progress.status === 'partial' ? 'Completed with partial coverage' : progress.status === 'failed' ? 'Crawl failed' : 'Working');
   const rows = [
     ['Pages visited', progress.pagesVisited ?? 0],
     ['Pages discovered', progress.pagesDiscovered ?? 0],
