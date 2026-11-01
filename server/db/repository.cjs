@@ -74,12 +74,48 @@ class Repository {
   async analysisResultKeysForFile(userId, fileId) { const result = await this.pool.query('SELECT DISTINCT j.result_storage_key FROM analysis_jobs j JOIN analysis_job_files jf ON jf.analysis_job_id = j.id WHERE jf.file_id = $1 AND j.user_id = $2 AND j.result_storage_key IS NOT NULL', [fileId, userId]); return result.rows.map(row => row.result_storage_key); }
   async setFileStatus(userId, id, status) { await this.pool.query('UPDATE files SET status = $3, updated_at = NOW() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL', [id, userId, status]); }
   async activeAnalysisJobsForUser(userId) { const result = await this.pool.query("SELECT COUNT(*)::int AS count FROM analysis_jobs WHERE user_id = $1 AND status IN ('queued', 'processing')", [userId]); return Number(result.rows[0]?.count || 0); }
-  async createAnalysisJob({ userId, fileIds, request, maxConcurrent }) { const id = randomUUID(); const client = await this.pool.connect(); try { await client.query('BEGIN');
-      // Serialize the count-and-claim decision per owner across Render instances. This
-      // avoids process-local job truth and prevents two concurrent requests from both
-      // passing a stale capacity count.
-      if (maxConcurrent) { await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [userId]); const active = await client.query("SELECT COUNT(*)::int AS count FROM analysis_jobs WHERE user_id = $1 AND status IN ('queued', 'processing')", [userId]); if (Number(active.rows[0]?.count || 0) >= maxConcurrent) { await client.query('ROLLBACK'); return undefined; } }
-      await client.query("INSERT INTO analysis_jobs (id, user_id, status, request, attempts, max_attempts, started_at) VALUES ($1,$2,'processing',$3::jsonb,1,1,NOW())", [id, userId, JSON.stringify(request)]); for (const fileId of fileIds) await client.query('INSERT INTO analysis_job_files (analysis_job_id, file_id) VALUES ($1,$2)', [id, fileId]); await client.query('COMMIT'); return id; } catch (error) { await client.query('ROLLBACK').catch(() => undefined); throw error; } finally { client.release(); } }
+  async createAnalysisJob({ userId, fileIds, request, maxConcurrent }) {
+    const id = randomUUID();
+    let client;
+    let substage = 'connect';
+    let began = false;
+    try {
+      client = await this.pool.connect();
+      substage = 'begin_transaction';
+      await client.query('BEGIN');
+      began = true;
+      // Serialize the count-and-claim decision per owner across Render instances.
+      if (maxConcurrent) {
+        substage = 'lock_owner_capacity';
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [userId]);
+        substage = 'count_active_jobs';
+        const active = await client.query("SELECT COUNT(*)::int AS count FROM analysis_jobs WHERE user_id = $1 AND status IN ('queued', 'processing')", [userId]);
+        if (Number(active.rows[0]?.count || 0) >= maxConcurrent) {
+          substage = 'rollback_capacity_limit';
+          await client.query('ROLLBACK');
+          began = false;
+          return undefined;
+        }
+      }
+      substage = 'insert_analysis_job';
+      await client.query("INSERT INTO analysis_jobs (id, user_id, status, request, attempts, max_attempts, started_at) VALUES ($1,$2,'processing',$3::jsonb,1,1,NOW())", [id, userId, JSON.stringify(request)]);
+      for (const fileId of fileIds) {
+        substage = 'link_file_' + (fileIds.indexOf(fileId) + 1);
+        await client.query('INSERT INTO analysis_job_files (analysis_job_id, file_id) VALUES ($1,$2)', [id, fileId]);
+      }
+      substage = 'commit_transaction';
+      await client.query('COMMIT');
+      began = false;
+      return id;
+    } catch (error) {
+      if (error && typeof error === 'object') error.analysisSubstage = substage;
+      if (began && client) await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      substage = 'release_connection';
+      if (client) client.release();
+    }
+  }
   async completeAnalysisJob({ id, status, resultStorageKey, errorCode, errorMessage }) { await this.pool.query('UPDATE analysis_jobs SET status = $2, result_storage_key = $3, error_code = $4, error_message = $5, completed_at = NOW(), updated_at = NOW() WHERE id = $1', [id, status, resultStorageKey || null, errorCode || null, errorMessage || null]); }
   async analysisJobForOwner(userId, id) { const result = await this.pool.query('SELECT j.* FROM analysis_jobs j WHERE j.id = $1 AND j.user_id = $2 AND EXISTS (SELECT 1 FROM analysis_job_files jf JOIN files f ON f.id = jf.file_id WHERE jf.analysis_job_id = j.id AND f.deleted_at IS NULL)', [id, userId]); return result.rows[0]; }
   async requestCancelJob(userId, id) { const result = await this.pool.query("UPDATE analysis_jobs SET cancel_requested_at = NOW(), status = CASE WHEN status = 'queued' THEN 'cancelled' ELSE status END, updated_at = NOW() WHERE id = $1 AND user_id = $2 RETURNING *", [id, userId]); return result.rows[0]; }
