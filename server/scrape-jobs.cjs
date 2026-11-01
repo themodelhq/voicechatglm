@@ -57,7 +57,7 @@ function catalogueRows(workflow) {
 async function processJob(job) {
   const env=process.env, cfg=webRetrievalConfig(env);
   if(!cfg.enabled||!cfg.configured) throw Object.assign(new Error('Website retrieval is disabled or misconfigured.'),{code:'CAPABILITY_UNAVAILABLE'});
-  const workflow=await runScrape({urls:Array.isArray(job.seed_urls)?job.seed_urls:[],retrievalConfiguration:cfg,onProgress:snapshot=>updateProgress(job.id,snapshot)});
+  const workflow=await runScrape({urls:Array.isArray(job.seed_urls)?job.seed_urls:[],retrievalConfiguration:cfg,background:true,onProgress:snapshot=>updateProgress(job.id,snapshot)});
   await updateProgress(job.id,{...workflow,crawl:{...workflow.crawl,phase:'preparing_workbook'}});
   const rows=catalogueRows(workflow), count=Math.max(0,rows.length-1);
   if(!count) throw Object.assign(new Error('No structured product records were extracted from the retrieved pages.'),{code:'NO_PRODUCTS'});
