@@ -33,9 +33,11 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   const listingUrl = value => { try { const url = new URL(value), path = url.pathname.toLowerCase(); return /(?:^|\\/)(?:collections?|categories|category|catalog|shop|store|products|clothing|men|women|kids|children)(?:\\/|$)/.test(path) || /[?&](?:page|paged|p)=\\d+/i.test(url.search); } catch { return false; } };
   const enqueueProduct = value => { const canonical=canonicalPageUrl(value); if(!canonical||!hosts.has(new URL(canonical).hostname.toLowerCase())||productQueued.has(canonical)||visited.has(canonical))return; if(productQueued.size>=maxLinks)return; productQueued.add(canonical);productQueue.push(canonical); };
   const enqueueDiscovery = value => { const canonical=canonicalPageUrl(value); if(!canonical||!hosts.has(new URL(canonical).hostname.toLowerCase())||discoveryQueued.has(canonical)||visited.has(canonical)||!listingUrl(canonical))return; if(discoveryQueued.size>=maxDiscoveryPages)return;discoveryQueued.add(canonical);discoveryQueue.push(canonical); };
-  let discoveryVisited = 0;
-  let productPagesVisited = 0;
-  while ((discoveryQueue.length || productQueue.length) && pages.length + failures.length < maxPages) {
+  let discoveryVisited = Number(resumeState?.discoveryVisited || 0);
+  let productPagesVisited = Number(resumeState?.productPagesVisited || 0);
+  let batchProcessed = 0;
+  const batchLimit = background ? maxPages : Math.min(3, Math.max(1, Number(batchPageLimit) || 3));
+  while ((discoveryQueue.length || productQueue.length) && batchProcessed < batchLimit) {
     assertNotCancelled(signal);
     // Always finish catalogue discovery before consuming the product queue. This
     // prevents an early batch of products from hiding later category pages.
