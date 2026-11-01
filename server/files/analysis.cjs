@@ -42,22 +42,25 @@ function deterministicCsvAnswer(records, question) {
   const placeholders = new Set(['', 'n/a', 'na', 'n.a.', 'nil', 'null', 'none', 'not applicable', '-', '--']);
   const fdaIndex = headers.findIndex(header => normalized(header).replace(/[^a-z0-9]/g, '') === 'fda');
   const asksPopulated = /(populated|filled|non.?empty|not empty|has value|has values|present|available)/.test(lower);
-  const asksFda = /\bfda\b/.test(lower);
+  const asksFda = /\\bfda\\b/.test(lower);
   const asksExtract = /(extract|list|show|find|return|which|identify)/.test(lower);
   if (fdaIndex < 0 || !asksFda || !asksPopulated || !asksExtract) return undefined;
-  const productIndexes = headers.map((header, index) => ({ header, index })).filter(item => /(^|\b)(product|name|sku|item|title|config|barcode|gtin|id)(\b|$)/i.test(item.header));
+  const productIndexes = headers.map((header, index) => ({ header, index })).filter(item => /(^|\\b)(product|name|sku|item|title|config|barcode|gtin|id)(\\b|$)/i.test(item.header));
   const selected = rows.map((row, index) => ({ row, rowNumber: index + 2 })).filter(item => !placeholders.has(normalized(item.row[fdaIndex])));
-  const outputHeaders = [...productIndexes.map(item => item.header), headers[fdaIndex]].filter((value, index, list) => list.indexOf(value) === index);
-  const output = selected.map(item => {
-    const values = productIndexes.map(col => item.row[col.index] ?? '');
-    values.push(item.row[fdaIndex] ?? '');
-    return values;
-  });
-  const table = [outputHeaders, ...output].map(row => '| ' + row.map(value => String(value).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')).join(' | ') + ' |').join('\n');
-  const sep = '| ' + outputHeaders.map(() => '---').join(' | ') + ' |';
+  const outputColumns = [...productIndexes.map(item => item.index), fdaIndex].filter((value, index, list) => list.indexOf(value) === index);
+  const outputHeaders = outputColumns.map(index => headers[index]);
+  const output = selected.map(item => outputColumns.map(index => item.row[index] ?? ''));
+  const escapeCell = value => String(value ?? '').replace(/\\|/g, '\\\\|').replace(/\\r?\\n/g, ' ');
+  const table = [outputHeaders, ...output].map(row => '| ' + row.map(escapeCell).join(' | ') + ' |').join('\\n');
   const total = rows.length;
-  const blankCount = rows.length - selected.length;
-  return { response: selected.length ? `Found **${selected.length}** of **${total}** product records with a populated FDA column. Placeholder values excluded: blank, N/A, NA, NIL, NULL, NONE, NOT APPLICABLE and dashes.\n\n${[outputHeaders, ...output].map(row => '| ' + row.map(value => String(value).replace(/\\|/g, '\\\\|').replace(/\\r?\\n/g, ' ')).join(' | ') + ' |').join('\\n')}\n\nSource row numbers refer to the original CSV, starting at row 2.` : `No product records have a populated FDA column. Checked all ${total} product records.`, sources: [{ filename: csvRecord.filename, location: `Complete CSV data rows 2–${rows.length + 1}`, truncated: false }], truncated: false, partial: false, coverage: [], analysisWindows: 0, retention: 'The original object and structured extraction artifact remain private and available only to the owner until expiry or deletion.' };
+  return {
+    response: selected.length
+      ? `Found **${selected.length}** of **${total}** product records with a populated FDA column. Placeholder values excluded: blank, N/A, NA, NIL, NULL, NONE, NOT APPLICABLE and dashes.\\n\\n${table}\\n\\nSource row numbers refer to the original CSV, starting at row 2.`
+      : `No product records have a populated FDA column. Checked all ${total} product records.`,
+    sources: [{ filename: csvRecord.filename, location: `Complete CSV data rows 2–${rows.length + 1}`, truncated: false }],
+    truncated: false, partial: false, coverage: [], analysisWindows: 0,
+    retention: 'The original object and structured extraction artifact remain private and available only to the owner until expiry or deletion.'
+  };
 }
 async function analyzeRecords({ ownerId, records, request, callModel, signal }) { const deterministic = deterministicCsvAnswer(records, request.question); if (deterministic) return deterministic; if (signal?.aborted) throw Object.assign(new Error('File analysis was cancelled.'), { code: 'CANCELLED' }); const unavailable = records.find(record => !record.extraction.contentAnalysisAvailable && !record.extraction.analysisAvailable); if (unavailable) throw Object.assign(new Error(unavailable.type === 'zip' ? 'Archive inspection is available, but no supported archive content was safely extracted for analysis.' : unavailable.extraction.notices?.[0] || 'This file cannot be analyzed by the configured service.'), { code: 'ANALYSIS_UNAVAILABLE' }); const grounded = buildGroundedMessages(records, request.question); if (!grounded.windows.length || !grounded.sources.length) throw Object.assign(new Error('No authorized extractable content is available for analysis.'), { code: 'ANALYSIS_UNAVAILABLE' }); const answers = []; for (const window of grounded.windows) { if (signal?.aborted) throw Object.assign(new Error('File analysis was cancelled.'), { code: 'CANCELLED' }); const result = await callModel({ message: window.message, ...(request.conversationId ? { conversation_id: request.conversationId } : {}), max_new_tokens: request.maxNewTokens, system_prompt: trustedSystemPrompt(request.agentInstructions) }); if (result.status < 200 || result.status >= 300) throw Object.assign(new Error('The model analysis request could not be completed.'), { code: 'MODEL_ERROR', status: result.status }); const answer = textFromResponse(result.body); if (!answer) throw Object.assign(new Error('The model returned an empty or unsupported analysis response.'), { code: 'EMPTY_MODEL_RESPONSE' }); answers.push(answer); }
   if (signal?.aborted) throw Object.assign(new Error('File analysis was cancelled.'), { code: 'CANCELLED' }); const archiveRetained = records.some(record => record.type === 'zip'); const partial = grounded.truncated || records.some(record => record.archive?.manifest?.partial) || grounded.coverage.some(item => item.omittedForContext > 0); const response = answers.length === 1 ? answers[0] : `Analysis is grouped into ${answers.length} bounded source windows. Each section reflects only its cited window; do not treat this as an unqualified full-document conclusion.\n\n${answers.map((answer, index) => `Window ${index + 1}:\n${answer}`).join('\n\n')}`; return { response, sources: grounded.sources, truncated: grounded.truncated, partial, coverage: grounded.coverage, analysisWindows: answers.length, retention: archiveRetained ? 'Archive object and bounded extracted-text artifact remain available privately to the owner until expiry or deletion.' : 'The original object and bounded extraction artifact remain private and available only to the owner until expiry or deletion.' }; }
