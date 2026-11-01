@@ -11,7 +11,7 @@ async function runResearch({ message, searchConfiguration, retrievalConfiguratio
 function canonicalPageUrl(value) { try { const url = new URL(value); url.hash = ''; for (const key of [...url.searchParams.keys()]) if (/^(utm_|fbclid$|gclid$)/i.test(key)) url.searchParams.delete(key); return url.toString(); } catch { return undefined; } }
 function sameSite(left, right) { try { const a = new URL(left); const b = new URL(right); return a.hostname.toLowerCase() === b.hostname.toLowerCase(); } catch { return false; } }
 function crawlPriority(value) { const path = (() => { try { return new URL(value).pathname.toLowerCase(); } catch { return ''; } })(); if (/\/(products?|product-detail|item)\//.test(path)) return 0; if (/\/(collections?|categories|catalog|shop|store|products?)\b/.test(path)) return 1; if (/[?&](page|paged|p)=\d+/i.test(value) || /\/(page|pages)\//.test(path)) return 2; return 3; }
-async function runScrape({ urls, retrievalConfiguration, signal, retrievalOptions }) {
+async function runScrape({ urls, retrievalConfiguration, signal, retrievalOptions, onProgress }) {
   if (!Array.isArray(urls) || !urls.length) throw Object.assign(new Error('Provide at least one HTTP or HTTPS URL to retrieve.'), { code: 'CLARIFICATION_REQUIRED', status: 400 });
   const maxPages = Math.max(1, Math.min(5000, Number(retrievalConfiguration.maxPages) || 1000));
   const maxLinks = Math.max(1, Math.min(20_000, Number(retrievalConfiguration.maxLinks) || 10_000));
@@ -42,11 +42,11 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
       }
     }
   }
-  const products = pages.reduce((total, page) => total + (page.products?.length || 0), 0);
+  const products = pages.reduce((total, page) => total + (page.products?.length || 0), 0);\n    await onProgress?.({ pages, failures, crawl: { pagesDiscovered: queued.size, queuedButNotVisited: queue.length } });
   const partial = Boolean(failures.length || queue.length);
   const steps = pages.map((page, index) => ({ id: `retrieve_${index + 1}`, operation: 'website_retrieval', inputs: { url: page.requestedUrl || page.url }, output: 'page_extraction', onError: 'partial', cancellable: true }));
   if (!pages.length) throw Object.assign(new Error('No requested page could be retrieved under the configured safety policy.'), { code: failures[0]?.code || 'RETRIEVAL_FAILED', status: 422, failures });
-  return { plan: { type: 'website_scraping', steps }, pages, failures, partial, crawl: { seedUrls: seeds, pagesVisited: visited.size, pagesRetrieved: pages.length, queuedButNotVisited: queue.length, pageLimit: maxPages, productRecordsFound: products } };
+  return { plan: { type: 'website_scraping', steps }, pages, failures, partial, crawl: { seedUrls: seeds, pagesVisited: visited.size, pagesRetrieved: pages.length, pagesDiscovered: queued.size, queuedButNotVisited: queue.length, pageLimit: maxPages, productRecordsFound: products } };
 }
 function evidenceForModel({ search, pages }) { const snippets = search?.results?.length ? sourcesForModel(search.results) : ''; const extracted = (pages || []).map((page, index) => `[Retrieved page ${index + 1}: ${page.title || page.url}\nRequested URL: ${page.requestedUrl || page.url}\nFinal URL: ${page.finalUrl || page.url}\nRetrieved: ${page.retrievedAt}\nMethod: ${page.retrievalMethod || 'direct_html'}\nDescription: ${page.description || '(none)'}${page.truncated ? '\nExtraction is partial because the configured text limit was reached.' : ''}\nExtracted conventional HTML text:\n${page.text || '(no extractable text)'}${page.tables?.length ? `\nStructured tables: ${JSON.stringify(page.tables)}` : ''}${page.products?.length ? `\nStructured products: ${JSON.stringify(page.products)}` : ''}]`).join('\n\n'); return [snippets, extracted].filter(Boolean).join('\n\n'); }
 module.exports = { MAX_WORKFLOW_STEPS, MAX_RESEARCH_SOURCES, boundedMap, researchQuery, researchPlan, runResearch, runScrape, evidenceForModel };
