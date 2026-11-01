@@ -41,6 +41,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
         queued.add(canonical); queue.push(canonical);
       }
     }
+    await onProgress?.({ pages, failures, crawl: { pagesDiscovered: queued.size, queuedButNotVisited: queue.length } });
   }
   const products = pages.reduce((total, page) => total + (page.products?.length || 0), 0);\n    await onProgress?.({ pages, failures, crawl: { pagesDiscovered: queued.size, queuedButNotVisited: queue.length } });
   const partial = Boolean(failures.length || queue.length);
