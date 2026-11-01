@@ -52,7 +52,7 @@ function catalogueRows(workflow) {
   for (const page of workflow.pages || []) for (const item of page.products || []) {
     const url = canonical(item.url || page.finalUrl || page.url);
     const sku = clean(item.sku);
-    const key = sku ? `sku:${sku.toLowerCase()}` : url ? `url:${url.toLowerCase()}` : `name:${clean(item.name || page.title)?.toLowerCase() || randomUUID()}`;
+    const key = url ? `url:${url.toLowerCase()}` : sku ? `sku:${sku.toLowerCase()}` : `name:${clean(item.name || page.title)?.toLowerCase() || randomUUID()}`;
     const existing = byIdentity.get(key) || { name: '', description: '', price: '', currency: '', availability: '', sku: '', brand: '', rating: '', reviewCount: '', url: '', imageUrls: [] };
     // Detail-page values enrich listing-card values; absent values never erase known data.
     for (const field of ['name','description','price','currency','availability','sku','brand','rating','reviewCount']) {
