@@ -7,7 +7,7 @@ function Inline({ text }: { text: string }) {
     if (/^`[^`]+`$/.test(part)) return <code key={index}>{part.slice(1, -1)}</code>;
     if (/^\*\*[^*]+\*\*$/.test(part)) return <strong key={index}>{part.slice(2, -2)}</strong>;
     const link = part.match(/^\[([^\]]+)\]\(([^\s)]+)\)$/);
-    if (link) { const safe = /^(https?:\/\/|mailto:)/i.test(link[2]); return safe ? <a key={index} href={link[2]} target="_blank" rel="noreferrer noopener">{link[1]} <span aria-label="opens in a new tab">↗</span></a> : <Fragment key={index}>{link[1]}</Fragment>; }
+    if (link) { const safe = /^(https?:\/\/|mailto:)/i.test(link[2]) || /^\/api\/analysis\/[0-9a-f-]{20,80}\/export\.(csv|xlsx)$/i.test(link[2]); return safe ? <a key={index} href={link[2]} target="_blank" rel="noreferrer noopener">{link[1]} <span aria-label="opens in a new tab">↗</span></a> : <Fragment key={index}>{link[1]}</Fragment>; }
     return <Fragment key={index}>{part}</Fragment>;
   })}</>;
 }
