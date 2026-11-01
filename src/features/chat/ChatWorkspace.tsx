@@ -4,7 +4,7 @@ import { Button, Brand, EmptyState, Icon, StatusBadge } from '../../components/u
 import { ConversationShareDialog } from './ConversationShareDialog';
 import { useWorkspace } from '../../app/WorkspaceContext';
 import type { Agent, ArtifactReference, AttachmentReference, Message } from '../../types/domain';
-import { analyzeFiles, ApiError, artifactDownloadUrl, deleteFile, listConversationShares, resubmitConversationMessage, revokeConversationShare, sendChat, setConversationMessageFeedback, getScrapeJob, advanceScrapeJob, getArtifact, type ShareLink, uploadFiles } from '../../services/api/client';
+import { analyzeFiles, ApiError, artifactDownloadUrl, deleteFile, listConversationShares, resubmitConversationMessage, revokeConversationShare, sendChat, setConversationMessageFeedback, advanceScrapeJob, getArtifact, type ShareLink, uploadFiles } from '../../services/api/client';
 import { formatTime, id, titleFromMessage } from '../../utils/format';
 
 const MAX_MESSAGE_LENGTH = 12_000;
