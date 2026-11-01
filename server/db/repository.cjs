@@ -79,6 +79,7 @@ class Repository {
     let client;
     let substage = 'connect';
     let began = false;
+    let operationError;
     try {
       client = await this.pool.connect();
       substage = 'begin_transaction';
@@ -108,6 +109,7 @@ class Repository {
       began = false;
       return id;
     } catch (error) {
+      operationError = error;
       if (error && typeof error === 'object') error.analysisSubstage = substage;
       if (began && client) await client.query('ROLLBACK').catch(() => undefined);
       throw error;
@@ -116,13 +118,14 @@ class Repository {
         try {
           client.release();
         } catch (releaseError) {
-          // Preserve the original database failure when cleanup also fails.
-          // If release is the only failure, expose it as its own safe substage.
-          if (!releaseError || typeof releaseError !== 'object') {
-            releaseError = new TypeError('Database connection release failed.');
+          // Do not replace the primary database error with a cleanup error.
+          if (!operationError) {
+            const safeReleaseError = releaseError && typeof releaseError === 'object'
+              ? releaseError
+              : new TypeError('Database connection release failed.');
+            safeReleaseError.analysisSubstage = 'release_connection';
+            throw safeReleaseError;
           }
-          if (!releaseError.analysisSubstage) releaseError.analysisSubstage = 'release_connection';
-          throw releaseError;
         }
       }
     }
