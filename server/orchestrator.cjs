@@ -14,7 +14,7 @@ function crawlPriority(value) { const path = (() => { try { return new URL(value
 async function runScrape({ urls, retrievalConfiguration, signal, retrievalOptions }) {
   if (!Array.isArray(urls) || !urls.length) throw Object.assign(new Error('Provide at least one HTTP or HTTPS URL to retrieve.'), { code: 'CLARIFICATION_REQUIRED', status: 400 });
   const maxPages = Math.max(1, Math.min(5000, Number(retrievalConfiguration.maxPages) || 1000));
-  const maxLinks = Math.max(1, Math.min(1_000, Number(retrievalConfiguration.maxLinks) || 500));
+  const maxLinks = Math.max(1, Math.min(20_000, Number(retrievalConfiguration.maxLinks) || 10_000));
   const seeds = urls.map(canonicalPageUrl).filter(Boolean);
   const hosts = new Set(seeds.map(value => new URL(value).hostname.toLowerCase()));
   const queued = new Set(seeds); const visited = new Set(); const queue = [...seeds]; const pages = []; const failures = [];
