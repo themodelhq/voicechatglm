@@ -17,7 +17,10 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   // background jobs may visit a bounded larger catalogue without holding open
   // the chat request; deployment limits are still respected.
   const configuredPageLimit = Math.max(1, Number(retrievalConfiguration.maxPages) || 100);
-  const maxPages = background ? Math.min(100, configuredPageLimit) : 3;
+  // Background jobs use their own explicit budget. This prevents an older
+  // synchronous/API setting of 3 pages from silently capping queued worker jobs.
+  const configuredBackgroundPageLimit = Math.max(1, Math.min(100, Number(retrievalConfiguration.backgroundMaxPages) || 100));
+  const maxPages = background ? configuredBackgroundPageLimit : 3;
   const maxLinks = Math.max(1, Math.min(20_000, Number(retrievalConfiguration.maxLinks) || 10_000));
   // Discover a bounded number of listing/category pages before visiting products.
   const maxDiscoveryPages = background ? Math.min(20, Math.max(1, Math.ceil(maxPages * 0.2))) : 2;
@@ -135,7 +138,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
       queuedButNotVisited: remaining, discoveryPagesVisited: discoveryVisited,
       productPagesVisited, productUrlsDiscovered: productQueued.size,
       productUrlsRemaining: productQueue.length, discoveryPagesRemaining: discoveryQueue.length,
-      discoveryPageLimit: maxDiscoveryPages, pageLimit: maxPages, productRecordsFound: products
+      discoveryPageLimit: maxDiscoveryPages, pageLimit: maxPages, configuredPageLimit, configuredBackgroundPageLimit, backgroundMode: Boolean(background), productRecordsFound: products
     }
   };
 }
