@@ -51,7 +51,8 @@ function deterministicCsvAnswer(records, question) {
   const outputHeaders = outputColumns.map(index => headers[index]);
   const output = selected.map(item => outputColumns.map(index => item.row[index] ?? ''));
   const escapeCell = value => String(value ?? '').replace(/\|/g, '\\\|').replace(/\r?\n/g, ' ');
-  const table = [outputHeaders, ...output].map(row => '| ' + row.map(escapeCell).join(' | ') + ' |').join('\n');
+  const separator = outputHeaders.map(() => '---');
+  const table = [outputHeaders, separator, ...output].map(row => '| ' + row.map(escapeCell).join(' | ') + ' |').join('\n');
   const total = rows.length;
   return {
     response: selected.length
