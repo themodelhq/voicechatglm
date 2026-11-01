@@ -78,7 +78,7 @@ function extractHtml(html, sourceUrl, configuration) { const document = parseDoc
     const skuNode = first(['.sku','[itemprop=sku]','[data-product_sku]']);
     const descriptionNode = first(['.woocommerce-product-details__short-description','.product-description','[itemprop=description]']);
     let pathname = ''; try { pathname = new URL(sourceUrl).pathname; } catch {}
-    const isProductPath = /\\/(?:product|products|produit|produits|artikel|produto)\\/[^/]+\\/?$/i.test(pathname) && !/\\/product-category\\//i.test(pathname);
+    const isProductPath = /\/(?:product|products|produit|produits|artikel|produto)\/[^/]+\/?$/i.test(pathname) && !/\/product-category\//i.test(pathname);
     const isProductPage = bodyClasses.some(value => /single-product|product-template/.test(value)) || Boolean(isProductPath && nameNode && priceNode);
     if (isProductPage && nameNode) {
       const imageNodes = elements.filter(node => {
