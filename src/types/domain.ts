@@ -59,6 +59,7 @@ export interface Message {
   toolEvents?: ToolEventReference[];
   route?: string;
   scrapeJobId?: string;
+  scrapeProgress?: { status: 'queued' | 'running' | 'completed' | 'partial' | 'failed'; phase?: string; pagesVisited?: number; pagesDiscovered?: number; productsFound?: number; failedPages?: number; queuedButNotVisited?: number; discoveryPagesVisited?: number; productPagesVisited?: number; productUrlsDiscovered?: number; productUrlsRemaining?: number; discoveryPagesRemaining?: number; batchSize?: number; };
   notices?: string[];
   analysisTruncated?: boolean;
 }
