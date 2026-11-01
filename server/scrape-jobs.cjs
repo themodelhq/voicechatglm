@@ -4,7 +4,8 @@ const { runScrape } = require('./orchestrator.cjs');
 const { webRetrievalConfig } = require('./web-retrieval.cjs');
 const { artifactConfig, persistGeneratedArtifact } = require('./artifacts.cjs');
 const { createObjectStore } = require('./files/object-storage.cjs');
-const WORKER_ID = `scrape-${process.pid}-${randomUUID()}`;\nconst API_BATCH_ID = `api-batch-${process.pid}`;
+const WORKER_ID = `scrape-${process.pid}-${randomUUID()}`;
+const API_BATCH_ID = `api-batch-${process.pid}`;
 const POLL_MS = 1500;
 const LEASE_MS = 300000;
 function publicJob(row) {
