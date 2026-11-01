@@ -34,7 +34,7 @@ function productCataloguePayload(message, workflow = {}) {
     const productUrl = item.url || page.finalUrl || page.url;
     let parsedUrl;
     try { parsedUrl = new URL(productUrl); } catch { continue; }
-    if (!/\/(?:product|products|produit|produits|artikel|produto)\/[^/]+\/?$/i.test(parsedUrl.pathname) || /\/product-category\//i.test(parsedUrl.pathname)) continue;
+    if (!/\/(?:product|products|produit|produits|artikel|produto)\/[^/]+\/?$/i.test(parsedUrl.pathname) || /\/product-category\//i.test(parsedUrl.pathname) || parsedUrl.search) continue;
     const productName = String(item.name || '').replace(/\s+/g, ' ').trim();
     if (!productName || /^(?:choix des options|select options|add to cart|ajouter au panier|quick view|compare|wishlist|femme|homme|enfant|robes|abayas|ensembles)$/i.test(productName)) continue;
     parsedUrl.hash = '';
