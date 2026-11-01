@@ -112,8 +112,19 @@ class Repository {
       if (began && client) await client.query('ROLLBACK').catch(() => undefined);
       throw error;
     } finally {
-      substage = 'release_connection';
-      if (client) client.release();
+      if (client) {
+        try {
+          client.release();
+        } catch (releaseError) {
+          // Preserve the original database failure when cleanup also fails.
+          // If release is the only failure, expose it as its own safe substage.
+          if (!releaseError || typeof releaseError !== 'object') {
+            releaseError = new TypeError('Database connection release failed.');
+          }
+          if (!releaseError.analysisSubstage) releaseError.analysisSubstage = 'release_connection';
+          throw releaseError;
+        }
+      }
     }
   }
   async completeAnalysisJob({ id, status, resultStorageKey, errorCode, errorMessage }) { await this.pool.query('UPDATE analysis_jobs SET status = $2, result_storage_key = $3, error_code = $4, error_message = $5, completed_at = NOW(), updated_at = NOW() WHERE id = $1', [id, status, resultStorageKey || null, errorCode || null, errorMessage || null]); }
