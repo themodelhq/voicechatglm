@@ -4,7 +4,7 @@ import { Button, Brand, EmptyState, Icon, StatusBadge } from '../../components/u
 import { ConversationShareDialog } from './ConversationShareDialog';
 import { useWorkspace } from '../../app/WorkspaceContext';
 import type { Agent, ArtifactReference, AttachmentReference, Message } from '../../types/domain';
-import { analyzeFiles, ApiError, artifactDownloadUrl, deleteFile, listConversationShares, resubmitConversationMessage, revokeConversationShare, sendChat, setConversationMessageFeedback, type ShareLink, uploadFiles } from '../../services/api/client';
+import { analyzeFiles, ApiError, artifactDownloadUrl, deleteFile, listConversationShares, resubmitConversationMessage, revokeConversationShare, sendChat, setConversationMessageFeedback, getScrapeJob, getArtifact, type ShareLink, uploadFiles } from '../../services/api/client';
 import { formatTime, id, titleFromMessage } from '../../utils/format';
 
 const MAX_MESSAGE_LENGTH = 12_000;
@@ -41,6 +41,34 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
   useEffect(() => { setDraft(state.drafts[draftKey] ?? ''); setAttachments([]); setComposerError(undefined); }, [draftKey]);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; uploads.current.forEach(controller => controller.abort()); requests.current.forEach(controller => controller.abort()); uploads.current.clear(); requests.current.clear(); }; }, []);
   useEffect(() => { box.current?.focus(); }, [conversationId, agentId]);
+  useEffect(() => {
+    const pendingJobs = (conversation?.messages || []).filter(message => message.scrapeJobId && !message.artifacts?.length && message.status !== 'error');
+    if (!pendingJobs.length) return;
+    let active = true, checking = false;
+    const timer = window.setInterval(async () => {
+      if (!active || checking) return; checking = true;
+      try {
+        for (const message of pendingJobs) {
+          const job = await getScrapeJob(message.scrapeJobId!);
+          if (!active) return;
+          if (job.status === 'completed' || job.status === 'partial') {
+            if (job.artifactId) {
+              const artifact = await getArtifact(job.artifactId); if (!active) return;
+              updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id === message.id ? { ...entry, status: job.status === 'partial' ? 'partial' : 'complete', content: `Website crawl finished: ${job.productsFound} product record(s) extracted from ${job.pagesVisited} pages. The Excel workbook is ready.`, artifacts: [artifact] } : entry) }));
+            }
+            window.clearInterval(timer); break;
+          }
+          if (job.status === 'failed') {
+            updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id === message.id ? { ...entry, status: 'error', content: 'The background website crawl failed. Please retry the request.' } : entry) }));
+            window.clearInterval(timer); break;
+          }
+        }
+      } catch { /* Polling is best-effort; the durable job continues on the server. */ }
+      finally { checking = false; }
+    }, 3000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [conversationId, conversation?.messages, updateConversations]);
+
   useEffect(() => { let active = true; if (!conversationId) { setShareLinks([]); return; } void listConversationShares(conversationId).then(links => { if (active) setShareLinks(links); }).catch(() => { if (active) setShareLinks([]); }); return () => { active = false; }; }, [conversationId]);
   const changeDraft = (value: string) => { setDraft(value); saveDraft(draftKey, value); };
   const patchConversation = (targetId: string, pendingId: string, update: (message: Message) => Message) => updateConversations(items => items.map(item => item.id !== targetId ? item : { ...item, updatedAt: new Date().toISOString(), messages: item.messages.map(message => message.id === pendingId ? update(message) : message) }));
@@ -57,7 +85,7 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
       } else {
         const result = await sendChat({ message, conversation_id: targetId, client_message_id: userMessageId, assistant_message_id: pendingId, idempotency_key: userMessageId, max_new_tokens: agent?.maxNewTokens ?? 768, ...(systemPrompt ? { system_prompt: systemPrompt } : {}) }, controller.signal);
         if (!mounted.current || controller.signal.aborted) return;
-        patchConversation(targetId, pendingId, entry => ({ ...entry, ...(result.assistantMessageId ? { id: result.assistantMessageId } : {}), content: result.text, status: result.partial ? 'partial' : 'complete', error: undefined, ...(result.citations?.length ? { citations: result.citations } : {}), ...(result.toolEvents?.length ? { toolEvents: result.toolEvents } : {}), ...(result.route ? { route: result.route } : {}), ...(result.notices?.length ? { notices: result.notices } : {}), ...(result.artifacts?.length ? { artifacts: result.artifacts } : {}), ...(result.partial ? { analysisTruncated: true } : {}) }));
+        patchConversation(targetId, pendingId, entry => ({ ...entry, ...(result.assistantMessageId ? { id: result.assistantMessageId } : {}), content: result.text, status: result.partial ? 'partial' : 'complete', error: undefined, ...(result.citations?.length ? { citations: result.citations } : {}), ...(result.toolEvents?.length ? { toolEvents: result.toolEvents } : {}), ...(result.route ? { route: result.route } : {}), ...(result.notices?.length ? { notices: result.notices } : {}), ...(result.artifacts?.length ? { artifacts: result.artifacts } : {}), ...(result.scrapeJobId ? { scrapeJobId: result.scrapeJobId } : {}), ...(result.partial ? { analysisTruncated: true } : {}) }));
       }
     } catch (error) {
       if (!mounted.current || controller.signal.aborted) return;
