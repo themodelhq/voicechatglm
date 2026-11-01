@@ -8,7 +8,10 @@ const WORKER_ID = `scrape-${process.pid}-${randomUUID()}`;\nconst API_BATCH_ID =
 const POLL_MS = 1500;
 const LEASE_MS = 300000;
 function publicJob(row) {
-  return row && { id: row.id, status: row.status, pagesVisited: Number(row.pages_visited || 0), pagesDiscovered: Number(row.pages_discovered || 0), productsFound: Number(row.products_found || 0), failedPages: Number(row.failed_pages || 0), artifactId: row.artifact_id || undefined, progress, errorCode: row.error_code || undefined, createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at || undefined };
+  if (!row) return undefined;
+  const progress = { ...(row.progress || {}) };
+  delete progress.workflowState;
+  return { id: row.id, status: row.status, pagesVisited: Number(row.pages_visited || 0), pagesDiscovered: Number(row.pages_discovered || 0), productsFound: Number(row.products_found || 0), failedPages: Number(row.failed_pages || 0), artifactId: row.artifact_id || undefined, progress, errorCode: row.error_code || undefined, createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at || undefined };
 }
 async function enqueueScrapeJob({ userId, conversationId, assistantMessageId, urls, message }) {
   const id = randomUUID();
