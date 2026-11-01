@@ -38,7 +38,7 @@ async function discoverSitemapProducts({ urls, configuration = webRetrievalConfi
   const maxProducts = Math.max(1, Math.min(20000, Number(configuration.maxLinks) || 10000));
   const hostRoots = [...new Set((urls || []).map(value => { try { const u = new URL(value); return u.origin; } catch { return undefined; } }).filter(Boolean))];
   for (const root of hostRoots) {
-    for (const path of ['/sitemap.xml','/sitemap_index.xml','/sitemap-index.xml','/wp-sitemap.xml','/product-sitemap.xml']) queue.push(new URL(path, root).toString());
+    for (const path of ['/sitemap.xml','/sitemap_index.xml','/sitemap-index.xml','/wp-sitemap.xml','/product-sitemap.xml','/wp-sitemap-posts-product-1.xml','/sitemap_products_1.xml','/xmlsitemap.php']) queue.push(new URL(path, root).toString());
   }
   const addLocs = value => {
     if (!value) return [];
