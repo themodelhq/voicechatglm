@@ -1,6 +1,6 @@
 /* Controlled conventional-HTML retrieval. The connection is pinned to a DNS answer
  * that is checked immediately before each request and redirect to mitigate SSRF/DNS rebinding. */
-const dns = require('node:dns').promises; const http = require('node:http'); const https = require('node:https'); const net = require('node:net'); const { parseDocument } = require('htmlparser2');
+const dns = require('node:dns').promises; const http = require('node:http'); const https = require('node:https'); const net = require('node:net'); const { parseDocument } = require('htmlparser2'); const { XMLParser } = require('fast-xml-parser');
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']); const MAX_EXTRACTED_TEXT = 60_000;
 function boundedInteger(env, name, fallback, minimum, maximum) { const raw = env[name]; if (raw === undefined || raw === '') return fallback; const parsed = Number(raw); return Number.isInteger(parsed) && parsed >= minimum && parsed <= maximum ? parsed : undefined; }
 function webRetrievalConfig(env = process.env) { const enabled = env.WEB_SCRAPING_ENABLED === 'true'; const timeoutMs = boundedInteger(env, 'WEB_SCRAPING_TIMEOUT_MS', 10_000, 1_000, 30_000); const maxResponseBytes = boundedInteger(env, 'WEB_SCRAPING_MAX_RESPONSE_BYTES', 1_000_000, 32_768, 5_000_000); const maxPages = boundedInteger(env, 'WEB_SCRAPING_MAX_PAGES_PER_REQUEST', 1000, 1, 5000); const maxRedirects = boundedInteger(env, 'WEB_SCRAPING_MAX_REDIRECTS', 3, 0, 5); const maxLinks = boundedInteger(env, 'WEB_SCRAPING_MAX_LINKS', 10_000, 1, 20_000); const maxText = boundedInteger(env, 'WEB_SCRAPING_MAX_TEXT_CHARS', 40_000, 1_000, MAX_EXTRACTED_TEXT); const concurrency = boundedInteger(env, 'WEB_SCRAPING_CONCURRENCY', 2, 1, 4); const burstPerMinute = boundedInteger(env, 'WEB_SCRAPING_BURST_PER_MINUTE', 8, 1, 60); const robotsPolicy = String(env.WEB_SCRAPING_ROBOTS_POLICY || 'respect').toLowerCase(); if (!['respect', 'ignore'].includes(robotsPolicy)) return { enabled, configured: false, timeoutMs, maxResponseBytes, maxPages, maxRedirects, maxLinks, maxText, concurrency, burstPerMinute, robotsPolicy, error: 'WEB_SCRAPING_ROBOTS_POLICY must be respect or ignore.' }; return { enabled, configured: enabled, timeoutMs, maxResponseBytes, maxPages, maxRedirects, maxLinks, maxText, concurrency, burstPerMinute, robotsPolicy, ...(enabled ? {} : { reason: 'Website retrieval is disabled by deployment policy.' }) }; }
@@ -30,5 +30,71 @@ function extractHtml(html, sourceUrl, configuration) { const document = parseDoc
   jsonLd.forEach(collect); const readable = readableBlocks(document, configuration.maxText); const truncation = { text: readable.truncated, tables: readable.tableTruncated, links: linksTruncated, structuredData: structuredDataTruncated }; return { url: sourceUrl, title: meta['og:title'] || meta.title, description: meta['og:description'] || meta.description, imageUrls, ...(meta['article:published_time'] ? { publicationDate: meta['article:published_time'] } : {}), text: readable.text, truncated: Object.values(truncation).some(Boolean), truncation, headings: headings.length ? headings : undefined, tables: readable.tables.length ? readable.tables : undefined, links: links.slice(0, configuration.maxLinks), products: products.filter(item => item.name || item.description || item.price), ...(faqs.length ? { faqs } : {}), ...(reviews.length ? { reviews } : {}) }; }
 async function retrievePage({ url, configuration = webRetrievalConfig(), signal, ...options }) { if (!configuration.enabled || !configuration.configured) throw Object.assign(new Error(configuration.error || configuration.reason || 'Website retrieval is not available.'), { code: 'CAPABILITY_UNAVAILABLE', status: 503 }); const checked = validateTargetUrl(url); if (checked.error) throw Object.assign(new Error(checked.error), { code: 'INVALID_URL', status: 400 }); if (!await robotsAllowed(checked.value, configuration, { signal, ...options })) throw Object.assign(new Error('This page is disallowed by the configured robots policy.'), { code: 'ROBOTS_DISALLOWED', status: 403 }); let response; try { response = await retrieveWithRedirects(checked.value, configuration, { signal, ...options }); } catch (error) { if (error?.code) throw error; if (error?.name === 'AbortError') throw Object.assign(new Error(signal?.aborted ? 'Website retrieval was cancelled.' : 'Website retrieval timed out.'), { code: signal?.aborted ? 'CANCELLED' : 'TIMEOUT', status: 504 }); throw Object.assign(new Error('The target website could not be retrieved safely.'), { code: 'RETRIEVAL_FAILED', status: 502 }); }
   const responseText = response.body.toString('utf8'); if (response.status === 401) throw Object.assign(new Error('The website requires authentication.'), { code: 'AUTH_REQUIRED', status: 422 }); if (response.status === 429) throw Object.assign(new Error('The website is rate limiting retrieval.'), { code: 'TARGET_RATE_LIMIT', status: 422 }); if (response.status === 403 || /(?:cf-chl|cloudflare.*challenge|captcha|verify you are human|unusual traffic)/i.test(responseText)) throw Object.assign(new Error('The website requires a human verification or denied automated access.'), { code: 'ACCESS_CHALLENGE', status: 422 }); if (response.status < 200 || response.status >= 300) throw Object.assign(new Error(`The website returned HTTP ${response.status}.`), { code: 'HTTP_STATUS', status: 422 }); const type = contentType(response.headers); if (!['text/html', 'application/xhtml+xml'].includes(type)) throw Object.assign(new Error('Only conventional HTML pages are supported by this retrieval service.'), { code: 'UNSUPPORTED_CONTENT_TYPE', status: 422 }); return { ...extractHtml(responseText, response.url, configuration), requestedUrl: checked.value.toString(), finalUrl: response.url, retrievalMethod: 'direct_html', contentType: type, retrievedAt: new Date().toISOString(), status: response.status }; }
+
+async function discoverSitemapProducts({ urls, configuration = webRetrievalConfig(), signal, ...options }) {
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true });
+  const discovered = new Set(); const visitedMaps = new Set(); const platforms = new Set(); const queue = [];
+  const maxMaps = Math.max(4, Math.min(40, Number(configuration.maxSitemaps) || 20));
+  const maxProducts = Math.max(1, Math.min(20000, Number(configuration.maxLinks) || 10000));
+  const hostRoots = [...new Set((urls || []).map(value => { try { const u = new URL(value); return u.origin; } catch { return undefined; } }).filter(Boolean))];
+  for (const root of hostRoots) {
+    for (const path of ['/sitemap.xml','/sitemap_index.xml','/sitemap-index.xml','/wp-sitemap.xml','/product-sitemap.xml']) queue.push(new URL(path, root).toString());
+  }
+  const addLocs = value => {
+    if (!value) return [];
+    const values = Array.isArray(value) ? value : [value];
+    return values.map(item => typeof item === 'string' ? item : item?.loc).filter(item => typeof item === 'string');
+  };
+  while (queue.length && visitedMaps.size < maxMaps && discovered.size < maxProducts) {
+    assertNotAborted(signal);
+    const candidate = queue.shift(); const checked = validateTargetUrl(candidate);
+    if (checked.error) continue;
+    const key = checked.value.toString(); if (visitedMaps.has(key)) continue; visitedMaps.add(key);
+    if (!hostRoots.some(root => { try { return new URL(key).origin === root; } catch { return false; } })) continue;
+    try {
+      if (!await robotsAllowed(checked.value, configuration, { signal, ...options })) continue;
+      const response = await retrieveWithRedirects(checked.value, configuration, { signal, ...options });
+      if (response.status < 200 || response.status >= 300) continue;
+      const xml = response.body.toString('utf8');
+      if (!/^\s*(?:<\?xml|<urlset|<sitemapindex)/i.test(xml)) continue;
+      const parsed = parser.parse(xml);
+      const index = parsed.sitemapindex;
+      if (index) {
+        for (const loc of addLocs(index.sitemap)) if (queue.length + visitedMaps.size < maxMaps * 4) queue.push(loc);
+        continue;
+      }
+      const set = parsed.urlset;
+      for (const loc of addLocs(set?.url)) {
+        const valid = validateTargetUrl(loc); if (valid.error) continue;
+        const target = valid.value;
+        if (!hostRoots.some(root => { try { return target.origin === root; } catch { return false; } })) continue;
+        const path = target.pathname.toLowerCase();
+        if (/\.(?:jpg|jpeg|png|gif|webp|svg|pdf|xml|css|js)$/i.test(path)) continue;
+        if (/(?:product|item|sku|variant)/i.test(path) || /[?&](?:product_id|product|sku)=/i.test(target.search)) discovered.add(target.toString());
+        if (discovered.size >= maxProducts) break;
+      }
+    } catch (error) {
+      if (signal?.aborted || error?.code === 'CANCELLED') throw error;
+      // A missing or unsupported sitemap is a discovery miss, not a failed product page.
+    }
+  }
+  // Identify common commerce engines from conventional public storefront markers.
+  for (const root of hostRoots) {
+    try {
+      const checked = validateTargetUrl(root); if (checked.error) continue;
+      if (!await robotsAllowed(checked.value, configuration, { signal, ...options })) continue;
+      const response = await retrieveWithRedirects(checked.value, configuration, { signal, ...options });
+      const html = response.body.toString('utf8').slice(0, 500000);
+      if (/cdn\.shopify\.com|Shopify\.theme|shopify-section/i.test(html)) platforms.add('shopify');
+      if (/woocommerce|wp-content\/plugins\/woocommerce/i.test(html)) platforms.add('woocommerce');
+      if (/Magento|mage\/cookies|static\/version\d+\/frontend/i.test(html)) platforms.add('magento');
+      if (/PrestaShop|prestashop/i.test(html)) platforms.add('prestashop');
+      if (/BigCommerce|cdn\d+\.bigcommerce\.com|stencil-utils/i.test(html)) platforms.add('bigcommerce');
+    } catch {}
+  }
+  return { productUrls: [...discovered], platforms: [...platforms], sitemapsVisited: visitedMaps.size, sitemapLimitReached: queue.length > 0 };
+}
+function assertNotAborted(signal) { if (signal?.aborted) throw Object.assign(new Error('The workflow was cancelled.'), { code: 'CANCELLED', status: 499 }); }
+
 function urlsFromText(message, maximum = 3) { const matches = String(message || '').match(/https?:\/\/[^\s<>"'`]+/gi) || []; const values = []; const seen = new Set(); for (const raw of matches) { const cleaned = raw.replace(/[),.;!?\]}]+$/, ''); const validated = validateTargetUrl(cleaned); if (validated.error || seen.has(validated.value.toString())) continue; seen.add(validated.value.toString()); values.push(validated.value.toString()); if (values.length >= maximum) break; } return values; }
-module.exports = { MAX_EXTRACTED_TEXT, webRetrievalConfig, validateTargetUrl, blockedAddress, ipv4Blocked, ipv6Blocked, resolvePublicHost, requestPinned, retrieveWithRedirects, robotsDisallows, extractHtml, retrievePage, urlsFromText };
+module.exports = { MAX_EXTRACTED_TEXT, webRetrievalConfig, validateTargetUrl, blockedAddress, ipv4Blocked, ipv6Blocked, resolvePublicHost, requestPinned, retrieveWithRedirects, robotsDisallows, extractHtml, retrievePage, discoverSitemapProducts, urlsFromText };
