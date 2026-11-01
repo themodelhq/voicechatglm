@@ -29,8 +29,8 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   const productQueue = [...(resumeState?.productQueue || [])], productQueued = new Set(resumeState?.productQueued || productQueue);
   const discoveryQueue = [...(resumeState?.discoveryQueue || seeds)], discoveryQueued = new Set(resumeState?.discoveryQueued || discoveryQueue);
   const visited = new Set(resumeState?.visited || []), pages = [...(resumeState?.pages || [])], failures = [...(resumeState?.failures || [])];
-  const productUrl = value => { try { const url = new URL(value), path = url.pathname.toLowerCase(); return /(?:^|\\/)(?:products?|produits?|product-detail|item|p|artikel|produto)\\/(?:[^/]+)(?:\\/|$)/.test(path) || /[?&](?:product_id|product|sku)=/i.test(url.search); } catch { return false; } };
-  const listingUrl = value => { try { const url = new URL(value), path = url.pathname.toLowerCase(); return /(?:^|\\/)(?:collections?|categories|category|catalog|shop|store|products|clothing|men|women|kids|children)(?:\\/|$)/.test(path) || /[?&](?:page|paged|p)=\\d+/i.test(url.search); } catch { return false; } };
+  const productUrl = value => { try { const url = new URL(value), path = url.pathname.toLowerCase(); return /(?:^|\/)(?:products?|produits?|product-detail|item|p|artikel|produto)\/(?:[^/]+)(?:\/|$)/.test(path) || /[?&](?:product_id|product|sku)=/i.test(url.search); } catch { return false; } };
+  const listingUrl = value => { try { const url = new URL(value), path = url.pathname.toLowerCase(); return /(?:^|\/)(?:collections?|categories|category|catalog|shop|store|products|clothing|men|women|kids|children)(?:\/|$)/.test(path) || /[?&](?:page|paged|p)=\d+/i.test(url.search); } catch { return false; } };
   const enqueueProduct = value => { const canonical=canonicalPageUrl(value); if(!canonical||!hosts.has(new URL(canonical).hostname.toLowerCase())||productQueued.has(canonical)||visited.has(canonical))return; if(productQueued.size>=maxLinks)return; productQueued.add(canonical);productQueue.push(canonical); };
   const enqueueDiscovery = value => { const canonical=canonicalPageUrl(value); if(!canonical||!hosts.has(new URL(canonical).hostname.toLowerCase())||discoveryQueued.has(canonical)||visited.has(canonical)||!listingUrl(canonical))return; if(discoveryQueued.size>=maxDiscoveryPages)return;discoveryQueued.add(canonical);discoveryQueue.push(canonical); };
   let discoveryVisited = Number(resumeState?.discoveryVisited || 0);
@@ -111,8 +111,8 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   return {
     plan: { type: 'website_product_catalogue', steps }, pages, failures, partial,
     crawl: {
-      phase: 'preparing_workbook',
-      seedUrls: seeds, pagesVisited: visited.size, pagesRetrieved: pages.length,
+      phase: hasMore ? (discoveryQueue.length ? 'discovering_catalogue' : 'extracting_products') : 'preparing_workbook',
+      hasMore, resumeState: nextState, seedUrls: seeds, pagesVisited: visited.size, pagesRetrieved: pages.length,
       pagesDiscovered: discoveryQueued.size + productQueued.size,
       queuedButNotVisited: remaining, discoveryPagesVisited: discoveryVisited,
       productPagesVisited, productUrlsDiscovered: productQueued.size,
