@@ -31,6 +31,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
       const result = results[index]; const requestedUrl = batch[index];
       if (!result.ok) { failures.push({ url: requestedUrl, code: result.error, message: result.message }); continue; }
       const page = result.value; pages.push(page);
+      const finalCanonical = canonicalPageUrl(page.finalUrl || page.url); if (finalCanonical) { visited.add(finalCanonical); if (pages.length === 1) hosts.add(new URL(finalCanonical).hostname.toLowerCase()); }
       for (const link of page.links || []) {
         if (queued.size >= maxLinks || visited.size >= maxPages * 4) break;
         const canonical = canonicalPageUrl(link.url);
