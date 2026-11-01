@@ -64,7 +64,7 @@ async function processJob(job) {
   if(!artifacts.enabled||!artifacts.configured) throw Object.assign(new Error('Private Excel artifact storage is unavailable.'),{code:'ARTIFACT_UNAVAILABLE'});
   const repository=require('./auth.cjs').repositoryFor(env);
   const store=createObjectStore(artifacts.storage);
-  const artifact=await persistGeneratedArtifact({repository,store,userId:job.user_id,conversationId:job.conversation_id,messageId:job.assistant_message_id,title:'Website Product Catalogue',content:'Website product catalogue',format:'xlsx',rows,expiresAt:new Date(Date.now()+artifacts.retentionMs)});
+  const artifact=await persistGeneratedArtifact({repository,store,userId:job.user_id,conversationId:job.conversation_id,messageId:job.assistant_message_id,jobId:job.id,title:'Website Product Catalogue',content:'Website product catalogue',format:'xlsx',rows,expiresAt:new Date(Date.now()+artifacts.retentionMs)});
   const status=workflow.partial?'partial':'completed';
   await getPool().query(`UPDATE website_scrape_jobs SET status=$2,pages_visited=$3,pages_discovered=$4,
     products_found=$5,failed_pages=$6,artifact_id=$7,progress=$8::jsonb,completed_at=NOW(),updated_at=NOW(),
