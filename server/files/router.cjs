@@ -229,10 +229,35 @@ async function productionFileHandler(req, res, cfg, providerRequest) {
       return safeError(res, 503, 'The private analysis export is temporarily unavailable.', origin, cfg);
     }
   }
-  const exportMatch = pathname.match(/^\/api\/analysis\/([0-9a-f-]{20,80})\/export\.(csv|xlsx)$/i); if (exportMatch && req.method === 'GET') { try { const job = await repository.analysisJobForOwner(user.id, exportMatch[1]); if (!job || !job.result_storage_key || !['analysis_completed', 'partially_analyzed'].includes(job.status)) return safeError(res, 404, 'Export not found or unavailable.', origin, cfg); const extension = exportMatch[2].toLowerCase(); const result = await store.getJson(job.result_storage_key, Math.min(64 * 1024 * 1024, Math.max(2 * 1024 * 1024, policy.maxIndividualBytes * 8 + 1024 * 1024))); const item = result?.exports?.find(entry => entry.format === extension); const validFilename = Boolean(item && typeof item.filename === 'string' && item.filename.endsWith('.' + extension) && /^[A-Za-z0-9._-]{1,120}$/.test(item.filename.slice(0, -(extension.length + 1)))); if (!validFilename) return safeError(res, 404, 'Export not found or unavailable.', origin, cfg); const key = store.keyFor(`artifacts/${user.id}/analysis/${job.id}/exports/${item.filename}`); const bytes = await store.getBuffer(key, Math.min(64 * 1024 * 1024, Math.max(2 * 1024 * 1024, policy.maxIndividualBytes * 8 + 1024 * 1024))); const contentType = extension === 'csv' ? 'text/csv; charset=utf-8' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'; res.writeHead(200, { ...headers(origin, cfg), 'Content-Type': contentType, 'Content-Length': String(bytes.length), 'Content-Disposition': `attachment; filename="${item.filename}"`, 'Cache-Control': 'private, no-store' }); return res.end(bytes); } catch { return safeError(res, 503, 'The private analysis export is temporarily unavailable.', origin, cfg); } }\n  const jobMatch = pathname.match(/^\/api\/analysis\/([0-9a-f-]{20,80})(?:\/(cancel))?$/i); if (jobMatch) { try { const job = await repository.analysisJobForOwner(user.id, jobMatch[1]); if (!job) return safeError(res, 404, 'Analysis result not found or unavailable.', origin, cfg); if (jobMatch[2] === 'cancel' && req.method === 'POST') { await repository.requestCancelJob(user.id, job.id); activeAnalysisControllers.get(job.id)?.abort(); return send(res, 200, { cancelled: true, status: job.status === 'queued' ? 'cancelled' : job.status }, origin, cfg); } if (!jobMatch[2] && req.method === 'GET') { let result; if (job.result_storage_key && ['analysis_completed', 'partially_analyzed'].includes(job.status)) result = await store.getJson(job.result_storage_key, policy.maxAnalysisCharacters * Math.max(1, policy.maxFilesPerMessage) * 4); return send(res, 200, { jobId: job.id, status: job.status, ...(result ? { result } : {}), ...(job.status === 'failed' ? { error: 'Analysis failed.' } : {}) }, origin, cfg); } } catch { return safeError(res, 503, 'Analysis result is temporarily unavailable.', origin, cfg); } }
+  const jobMatch = pathname.match(/^\/api\/analysis\/([0-9a-f-]{20,80})(?:\/(cancel))?$/i);
+  if (jobMatch) {
+    try {
+      const job = await repository.analysisJobForOwner(user.id, jobMatch[1]);
+      if (!job) return safeError(res, 404, 'Analysis result not found or unavailable.', origin, cfg);
+      if (jobMatch[2] === 'cancel' && req.method === 'POST') {
+        await repository.requestCancelJob(user.id, job.id);
+        activeAnalysisControllers.get(job.id)?.abort();
+        return send(res, 200, { cancelled: true, status: job.status === 'queued' ? 'cancelled' : job.status }, origin, cfg);
+      }
+      if (!jobMatch[2] && req.method === 'GET') {
+        let result;
+        if (job.result_storage_key && ['analysis_completed', 'partially_analyzed'].includes(job.status)) {
+          result = await store.getJson(job.result_storage_key, policy.maxAnalysisCharacters * Math.max(1, policy.maxFilesPerMessage) * 4);
+        }
+        return send(res, 200, { jobId: job.id, status: job.status, ...(result ? { result } : {}), ...(job.status === 'failed' ? { error: 'Analysis failed.' } : {}) }, origin, cfg);
+      }
+    } catch {
+      return safeError(res, 503, 'Analysis result is temporarily unavailable.', origin, cfg);
+    }
+  }
   return safeError(res, 404, 'File route not found.', origin, cfg);
 }
-async function nodeFileHandler(req, res, cfg, providerRequest) { const feature = fileAnalysisConfig(process.env); return feature.mode === 'production' ? productionFileHandler(req, res, cfg, providerRequest) : developmentFileHandler(req, res, cfg); }
+async function nodeFileHandler(req, res, cfg, providerRequest) {
+  const feature = fileAnalysisConfig(process.env);
+  return feature.mode === 'production'
+    ? productionFileHandler(req, res, cfg, providerRequest)
+    : developmentFileHandler(req, res, cfg);
+}
 module.exports = { DEV_SESSION_HEADER, uploadContentType, nodeFileHandler, productionFileHandler, productionPublicFile, parseMultipart, parseJson, developmentOwner, isLoopback, runCancellable, redactStandaloneExtraction, loadRecords };
 ).test(item.filename)) return safeError(res, 404, 'Export not found or unavailable.', origin, cfg); const key = store.keyFor(`artifacts/${user.id}/analysis/${job.id}/exports/${item.filename}`); const bytes = await store.getBuffer(key, Math.min(64 * 1024 * 1024, Math.max(2 * 1024 * 1024, policy.maxIndividualBytes * 8 + 1024 * 1024))); const contentType = extension === 'csv' ? 'text/csv; charset=utf-8' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'; res.writeHead(200, { ...headers(origin, cfg), 'Content-Type': contentType, 'Content-Length': String(bytes.length), 'Content-Disposition': `attachment; filename="${item.filename}"`, 'Cache-Control': 'private, no-store' }); return res.end(bytes); } catch { return safeError(res, 503, 'The private analysis export is temporarily unavailable.', origin, cfg); } }\n  const jobMatch = pathname.match(/^\/api\/analysis\/([0-9a-f-]{20,80})(?:\/(cancel))?$/i); if (jobMatch) { try { const job = await repository.analysisJobForOwner(user.id, jobMatch[1]); if (!job) return safeError(res, 404, 'Analysis result not found or unavailable.', origin, cfg); if (jobMatch[2] === 'cancel' && req.method === 'POST') { await repository.requestCancelJob(user.id, job.id); activeAnalysisControllers.get(job.id)?.abort(); return send(res, 200, { cancelled: true, status: job.status === 'queued' ? 'cancelled' : job.status }, origin, cfg); } if (!jobMatch[2] && req.method === 'GET') { let result; if (job.result_storage_key && ['analysis_completed', 'partially_analyzed'].includes(job.status)) result = await store.getJson(job.result_storage_key, policy.maxAnalysisCharacters * Math.max(1, policy.maxFilesPerMessage) * 4); return send(res, 200, { jobId: job.id, status: job.status, ...(result ? { result } : {}), ...(job.status === 'failed' ? { error: 'Analysis failed.' } : {}) }, origin, cfg); } } catch { return safeError(res, 503, 'Analysis result is temporarily unavailable.', origin, cfg); } }
   return safeError(res, 404, 'File route not found.', origin, cfg);
