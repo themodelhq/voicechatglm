@@ -30,15 +30,15 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   const productUrl = value => {
     try {
       const url = new URL(value); const path = url.pathname.toLowerCase();
-      return /(?:^|\\/)(?:products?|product-detail|item|p)\\/(?:[^/]+)(?:\\/|$)/.test(path)
+      return /(?:^|\/)(?:products?|product-detail|item|p)\/(?:[^/]+)(?:\/|$)/.test(path)
         || /[?&](?:product_id|product|sku)=/i.test(url.search);
     } catch { return false; }
   };
   const listingUrl = value => {
     try {
       const url = new URL(value); const path = url.pathname.toLowerCase();
-      return /(?:^|\\/)(?:collections?|categories|category|catalog|shop|store|products|clothing|men|women|kids|children)(?:\\/|$)/.test(path)
-        || /[?&](?:page|paged|p)=\\d+/i.test(url.search);
+      return /(?:^|\/)(?:collections?|categories|category|catalog|shop|store|products|clothing|men|women|kids|children)(?:\/|$)/.test(path)
+        || /[?&](?:page|paged|p)=\d+/i.test(url.search);
     } catch { return false; }
   };
   const enqueueProduct = value => {
@@ -94,7 +94,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
         const canonical = canonicalPageUrl(link.url);
         if (!canonical || !hosts.has(new URL(canonical).hostname.toLowerCase())) continue;
         const parsed = new URL(canonical);
-        if (/\\.(?:pdf|zip|png|jpe?g|gif|webp|svg|mp4|mp3|css|js|xml)(?:$|\\?)/i.test(parsed.pathname)) continue;
+        if (/\\.(?:pdf|zip|png|jpe?g|gif|webp|svg|mp4|mp3|css|js|xml)(?:$|\?)/i.test(parsed.pathname)) continue;
         if (productUrl(canonical)) enqueueProduct(canonical);
         else if (phase === 'discovery' && discoveryVisited < maxDiscoveryPages) enqueueDiscovery(canonical);
       }
