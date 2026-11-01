@@ -10,7 +10,7 @@ async function runResearch({ message, searchConfiguration, retrievalConfiguratio
 }
 function canonicalPageUrl(value) { try { const url = new URL(value); url.hash = ''; for (const key of [...url.searchParams.keys()]) if (/^(utm_|fbclid$|gclid$)/i.test(key)) url.searchParams.delete(key); return url.toString(); } catch { return undefined; } }
 function sameSite(left, right) { try { const a = new URL(left); const b = new URL(right); return a.hostname.toLowerCase() === b.hostname.toLowerCase(); } catch { return false; } }
-function crawlPriority(value) { const path = (() => { try { return new URL(value).pathname.toLowerCase(); } catch { return ''; } })(); if (/\/(products?|product-detail|item)\//.test(path)) return 0; if (/\/(collections?|categories|catalog|shop|store|products?)\\b/.test(path)) return 1; if (/[?&](page|paged|p)=\\d+/i.test(value) || /\/(page|pages)\//.test(path)) return 2; return 3; }
+function crawlPriority(value) { const path = (() => { try { return new URL(value).pathname.toLowerCase(); } catch { return ''; } })(); if (/\/(products?|product-detail|item)\//.test(path)) return 0; if (/\/(collections?|categories|catalog|shop|store|products?)\b/.test(path)) return 1; if (/[?&](page|paged|p)=\d+/i.test(value) || /\/(page|pages)\//.test(path)) return 2; return 3; }
 async function runScrape({ urls, retrievalConfiguration, signal, retrievalOptions }) {
   if (!Array.isArray(urls) || !urls.length) throw Object.assign(new Error('Provide at least one HTTP or HTTPS URL to retrieve.'), { code: 'CLARIFICATION_REQUIRED', status: 400 });
   const maxPages = Math.max(1, Math.min(200, Number(retrievalConfiguration.maxPages) || 50));
