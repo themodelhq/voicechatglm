@@ -150,8 +150,6 @@ services:
         value: "1000"
       - key: WEB_SCRAPING_BACKGROUND_MAX_PAGES
         value: "100"
-      - key: WEB_SCRAPING_BACKGROUND_MAX_PAGES
-        value: "100"
       - key: WEB_SCRAPING_MAX_LINKS
         value: "10000"
       - key: WEB_SCRAPING_CONCURRENCY
@@ -349,6 +347,8 @@ services:
         value: "1000000"
       - key: WEB_SCRAPING_MAX_PAGES_PER_REQUEST
         value: "1000"
+      - key: WEB_SCRAPING_BACKGROUND_MAX_PAGES
+        value: "100"
       - key: WEB_SCRAPING_MAX_LINKS
         value: "10000"
       - key: WEB_SCRAPING_CONCURRENCY
