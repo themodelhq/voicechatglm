@@ -20,7 +20,13 @@ function classifyIntent(message, context = {}) { const text = compact(message); 
   if (/\b(write|draft|compose)\b/.test(lower)) return { intent: 'document_writing', urls };
   return { intent: 'general_chat', urls };
 }
-function productCataloguePayload(message, workflow) {
+function productCataloguePayload(message, workflow = {}) {
+  workflow = {
+    pages: Array.isArray(workflow.pages) ? workflow.pages : [],
+    failures: Array.isArray(workflow.failures) ? workflow.failures : [],
+    crawl: workflow.crawl && typeof workflow.crawl === 'object' ? workflow.crawl : { queuedButNotVisited: 0 },
+    partial: Boolean(workflow.partial)
+  };
   const wantsProducts = /\b(products?|product catalogue|product catalog|inventory|shop items)\b/i.test(message) && /\b(details?|all|every|complete|full|excel|spreadsheet|image|sku|price)\b/i.test(message);
   if (!wantsProducts) return undefined;
   const seen = new Set(); const products = [];
