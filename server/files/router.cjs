@@ -84,14 +84,23 @@ function productionError(res, error, origin, cfg) {
     const stackFrames = typeof error?.stack === 'string'
       ? error.stack.split(String.fromCharCode(10)).slice(1).map(line => line.trim()).slice(0, 12)
       : [];
+    const errorName = typeof error?.name === 'string' && /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(error.name) ? error.name : 'Error';
+    const diagnosticCode = code && /^[A-Z0-9_]{1,64}$/.test(code) ? code : 'UNCLASSIFIED_ERROR';
     console.error(JSON.stringify({
       event: 'file_request_failed',
       requestId,
-      code: code || 'UNCLASSIFIED_ERROR',
-      errorName: typeof error?.name === 'string' ? error.name : 'Error',
+      code: diagnosticCode,
+      errorName,
       status,
       stackFrames
     }));
+    // Return only non-sensitive diagnostic metadata. Never expose the message,
+    // stack, request body, file content, cookies, or credentials to the client.
+    return send(res, status, {
+      error: message,
+      request_id: requestId,
+      diagnostic: { code: diagnosticCode, type: errorName }
+    }, origin, cfg);
   }
   safeError(res, status, message, origin, cfg);
 }
