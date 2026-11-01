@@ -61,7 +61,7 @@ function extractHtml(html, sourceUrl, configuration) { const document = parseDoc
     if (products.some(item => item.url === card.url)) continue;
     products.push({ name: title.slice(0, 500), url: card.url, ...(description ? { description } : {}), ...(priceMatch ? { price: priceMatch[0] } : {}), ...(imageUrl ? { imageUrls: [imageUrl] } : {}) });
   }
-Commerce-theme fallback: product details are often present in ordinary HTML
+  // Commerce-theme fallback: product details are often present in ordinary HTML
   // even when the storefront omits schema.org Product JSON-LD.
   if (!products.length) {
     const elements = [];
