@@ -11,7 +11,7 @@ async function runResearch({ message, searchConfiguration, retrievalConfiguratio
 function canonicalPageUrl(value) { try { const url = new URL(value); url.hash = ''; for (const key of [...url.searchParams.keys()]) if (/^(utm_|fbclid$|gclid$)/i.test(key)) url.searchParams.delete(key); return url.toString(); } catch { return undefined; } }
 function sameSite(left, right) { try { const a = new URL(left); const b = new URL(right); return a.hostname.toLowerCase() === b.hostname.toLowerCase(); } catch { return false; } }
 function crawlPriority(value) { const path = (() => { try { return new URL(value).pathname.toLowerCase(); } catch { return ''; } })(); if (/\/(products?|product-detail|item)\//.test(path)) return 0; if (/\/(collections?|categories|catalog|shop|store|products?)\b/.test(path)) return 1; if (/[?&](page|paged|p)=\d+/i.test(value) || /\/(page|pages)\//.test(path)) return 2; return 3; }
-async function runScrape({ urls, retrievalConfiguration, signal, retrievalOptions, onProgress, background = false }) {
+async function runScrape({ urls, retrievalConfiguration, signal, retrievalOptions, onProgress, background = false, resumeState, batchPageLimit }) {
   if (!Array.isArray(urls) || !urls.length) throw Object.assign(new Error('Provide at least one HTTP or HTTPS URL to retrieve.'), { code: 'CLARIFICATION_REQUIRED', status: 400 });
   // Synchronous callers retain the strict three-page response budget. Durable
   // background jobs may visit a bounded larger catalogue without holding open
@@ -24,41 +24,15 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   const maxLinks = Math.max(1, Math.min(20_000, Number(retrievalConfiguration.maxLinks) || 10_000));
   // Discover a bounded number of listing/category pages before visiting products.
   const maxDiscoveryPages = background ? Math.min(20, Math.max(1, Math.ceil(maxPages * 0.2))) : 2;
-  const seeds = urls.map(canonicalPageUrl).filter(Boolean);
-  const hosts = new Set(seeds.map(value => new URL(value).hostname.toLowerCase()));
-  const productQueue = [];
-  const productQueued = new Set();
-  const discoveryQueue = [...seeds];
-  const discoveryQueued = new Set(seeds);
-  const visited = new Set();
-  const pages = [];
-  const failures = [];
-  const productUrl = value => {
-    try {
-      const url = new URL(value); const path = url.pathname.toLowerCase();
-      return /(?:^|\/)(?:products?|produits?|product-detail|item|p|artikel|produto)\/(?:[^/]+)(?:\/|$)/.test(path)
-        || /[?&](?:product_id|product|sku)=/i.test(url.search);
-    } catch { return false; }
-  };
-  const listingUrl = value => {
-    try {
-      const url = new URL(value); const path = url.pathname.toLowerCase();
-      return /(?:^|\/)(?:collections?|categories|category|catalog|shop|store|products|clothing|men|women|kids|children)(?:\/|$)/.test(path)
-        || /[?&](?:page|paged|p)=\d+/i.test(url.search);
-    } catch { return false; }
-  };
-  const enqueueProduct = value => {
-    const canonical = canonicalPageUrl(value);
-    if (!canonical || !hosts.has(new URL(canonical).hostname.toLowerCase()) || productQueued.has(canonical) || visited.has(canonical)) return;
-    if (productQueued.size >= maxLinks) return;
-    productQueued.add(canonical); productQueue.push(canonical);
-  };
-  const enqueueDiscovery = value => {
-    const canonical = canonicalPageUrl(value);
-    if (!canonical || !hosts.has(new URL(canonical).hostname.toLowerCase()) || discoveryQueued.has(canonical) || visited.has(canonical) || !listingUrl(canonical)) return;
-    if (discoveryQueued.size >= maxDiscoveryPages) return;
-    discoveryQueued.add(canonical); discoveryQueue.push(canonical);
-  };
+  const seeds = (resumeState?.seeds || urls).map(canonicalPageUrl).filter(Boolean);
+  const hosts = new Set(resumeState?.hosts || seeds.map(value => new URL(value).hostname.toLowerCase()));
+  const productQueue = [...(resumeState?.productQueue || [])], productQueued = new Set(resumeState?.productQueued || productQueue);
+  const discoveryQueue = [...(resumeState?.discoveryQueue || seeds)], discoveryQueued = new Set(resumeState?.discoveryQueued || discoveryQueue);
+  const visited = new Set(resumeState?.visited || []), pages = [...(resumeState?.pages || [])], failures = [...(resumeState?.failures || [])];
+  const productUrl = value => { try { const url = new URL(value), path = url.pathname.toLowerCase(); return /(?:^|\\/)(?:products?|produits?|product-detail|item|p|artikel|produto)\\/(?:[^/]+)(?:\\/|$)/.test(path) || /[?&](?:product_id|product|sku)=/i.test(url.search); } catch { return false; } };
+  const listingUrl = value => { try { const url = new URL(value), path = url.pathname.toLowerCase(); return /(?:^|\\/)(?:collections?|categories|category|catalog|shop|store|products|clothing|men|women|kids|children)(?:\\/|$)/.test(path) || /[?&](?:page|paged|p)=\\d+/i.test(url.search); } catch { return false; } };
+  const enqueueProduct = value => { const canonical=canonicalPageUrl(value); if(!canonical||!hosts.has(new URL(canonical).hostname.toLowerCase())||productQueued.has(canonical)||visited.has(canonical))return; if(productQueued.size>=maxLinks)return; productQueued.add(canonical);productQueue.push(canonical); };
+  const enqueueDiscovery = value => { const canonical=canonicalPageUrl(value); if(!canonical||!hosts.has(new URL(canonical).hostname.toLowerCase())||discoveryQueued.has(canonical)||visited.has(canonical)||!listingUrl(canonical))return; if(discoveryQueued.size>=maxDiscoveryPages)return;discoveryQueued.add(canonical);discoveryQueue.push(canonical); };
   let discoveryVisited = 0;
   let productPagesVisited = 0;
   while ((discoveryQueue.length || productQueue.length) && pages.length + failures.length < maxPages) {
@@ -68,7 +42,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
     const phase = discoveryQueue.length ? 'discovery' : 'products';
     const sourceQueue = phase === 'discovery' ? discoveryQueue : productQueue;
     const batch = [];
-    while (sourceQueue.length && batch.length < retrievalConfiguration.concurrency && pages.length + failures.length + batch.length < maxPages) {
+    while (sourceQueue.length && batch.length < retrievalConfiguration.concurrency && batchProcessed + batch.length < batchLimit) {
       const candidate = sourceQueue.shift();
       if (!candidate || visited.has(candidate)) continue;
       visited.add(candidate); batch.push(candidate);
@@ -78,7 +52,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
       continue;
     }
     const results = await boundedMap(batch, retrievalConfiguration.concurrency, url => retrievePage({ url, configuration: retrievalConfiguration, signal, ...retrievalOptions }), signal);
-    for (let index = 0; index < results.length; index += 1) {
+    batchProcessed += results.length;\n    for (let index = 0; index < results.length; index += 1) {
       const result = results[index]; const requestedUrl = batch[index];
       if (!result.ok) {
         failures.push({ url: requestedUrl, code: result.error, message: result.message, pageType: phase === 'products' ? 'product' : 'discovery' });
@@ -126,7 +100,9 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   }
   const products = pages.reduce((total, page) => total + (page.products?.length || 0), 0);
   const remaining = discoveryQueue.length + productQueue.length;
-  const partial = Boolean(failures.length || remaining || discoveryVisited >= maxDiscoveryPages || pages.length + failures.length >= maxPages);
+  const hasMore = remaining > 0;
+  const partial = Boolean(failures.length || hasMore || discoveryVisited >= maxDiscoveryPages || (background && pages.length + failures.length >= maxPages));
+  const nextState = { seeds, hosts:[...hosts], discoveryQueue, discoveryQueued:[...discoveryQueued], productQueue, productQueued:[...productQueued], visited:[...visited], pages:pages.map(page=>({url:page.url,requestedUrl:page.requestedUrl,finalUrl:page.finalUrl,title:page.title,pageType:page.pageType,products:page.products||[]})), failures, discoveryVisited, productPagesVisited };
   const steps = pages.map((page, index) => ({ id: `retrieve_${index + 1}`, operation: 'website_retrieval', inputs: { url: page.requestedUrl || page.url }, output: 'page_extraction', onError: 'partial', cancellable: true }));
   if (!pages.length) throw Object.assign(new Error('No requested page could be retrieved under the configured safety policy.'), { code: failures[0]?.code || 'RETRIEVAL_FAILED', status: 422, failures });
   return {
