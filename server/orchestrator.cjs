@@ -102,6 +102,10 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
     await onProgress?.({
       pages, failures,
       crawl: {
+        phase: phase === 'discovery' ? 'discovering_catalogue' : 'extracting_products',
+        batchSize: batch.length,
+        pagesVisited: pages.length + failures.length,
+        productRecordsFound: pages.reduce((total, item) => total + (item.products?.length || 0), 0),
         pagesDiscovered: discoveryQueued.size + productQueued.size,
         queuedButNotVisited: discoveryQueue.length + productQueue.length,
         discoveryPagesVisited: discoveryVisited,
@@ -120,6 +124,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   return {
     plan: { type: 'website_product_catalogue', steps }, pages, failures, partial,
     crawl: {
+      phase: 'preparing_workbook',
       seedUrls: seeds, pagesVisited: visited.size, pagesRetrieved: pages.length,
       pagesDiscovered: discoveryQueued.size + productQueued.size,
       queuedButNotVisited: remaining, discoveryPagesVisited: discoveryVisited,
