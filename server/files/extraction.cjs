@@ -52,7 +52,7 @@ function extractCsv(buffer, filename, policy) {
   if (rows.length > policy.maxCsvRows) throw new Error(`CSV exceeds the ${policy.maxCsvRows}-row processing limit.`);
   const maxColumns = Math.max(0, ...rows.map(row => row.length)); if (!maxColumns) throw new Error('CSV contains no rows.'); if (maxColumns > policy.maxCsvColumns) throw new Error(`CSV exceeds the ${policy.maxCsvColumns}-column processing limit.`);
   const rendered = rows.map((row, index) => `Row ${index + 1}: ${row.map(value => String(value)).join(' | ')}`).join('\n');
-  return result({ text: rendered, filename, location: `CSV rows 1–${rows.length}`, policy });
+  return { ...result({ text: rendered, filename, location: `CSV rows 1–${rows.length}`, policy }), structuredCsv: { headers: rows[0].map((value, index) => String(value ?? '').trim() || `column_${index + 1}`), rows: rows.slice(1).map(row => rows[0].map((_, index) => String(row[index] ?? ''))), totalRows: Math.max(0, rows.length - 1), truncated: false } };
 }
 function columnIndex(cellRef) { const letters = String(cellRef || '').match(/[A-Z]+/i)?.[0] || ''; return [...letters.toUpperCase()].reduce((value, letter) => value * 26 + letter.charCodeAt(0) - 64, 0); }
 function rangeBounds(ref) { const [start = '', end = start] = String(ref || '').split(':'); return { rows: Math.max(Number(start.match(/\d+/)?.[0] || 0), Number(end.match(/\d+/)?.[0] || 0)), columns: Math.max(columnIndex(start), columnIndex(end)) }; }
