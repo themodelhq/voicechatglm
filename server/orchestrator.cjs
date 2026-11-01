@@ -43,7 +43,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
     }
     await onProgress?.({ pages, failures, crawl: { pagesDiscovered: queued.size, queuedButNotVisited: queue.length } });
   }
-  const products = pages.reduce((total, page) => total + (page.products?.length || 0), 0);\n    await onProgress?.({ pages, failures, crawl: { pagesDiscovered: queued.size, queuedButNotVisited: queue.length } });
+  const products = pages.reduce((total, page) => total + (page.products?.length || 0), 0);
   const partial = Boolean(failures.length || queue.length);
   const steps = pages.map((page, index) => ({ id: `retrieve_${index + 1}`, operation: 'website_retrieval', inputs: { url: page.requestedUrl || page.url }, output: 'page_extraction', onError: 'partial', cancellable: true }));
   if (!pages.length) throw Object.assign(new Error('No requested page could be retrieved under the configured safety policy.'), { code: failures[0]?.code || 'RETRIEVAL_FAILED', status: 422, failures });
