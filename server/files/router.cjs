@@ -99,7 +99,7 @@ function productionError(res, error, origin, cfg) {
     return send(res, status, {
       error: message,
       request_id: requestId,
-      diagnostic: { code: diagnosticCode, type: errorName, ...(typeof error?.analysisStage === 'string' ? { stage: error.analysisStage } : {}) }
+      diagnostic: { code: diagnosticCode, type: errorName, ...(typeof error?.analysisStage === 'string' ? { stage: error.analysisStage } : {}), ...(typeof error?.analysisSubstage === 'string' ? { substage: error.analysisSubstage } : {}) }
     }, origin, cfg);
   }
   safeError(res, status, message, origin, cfg);
