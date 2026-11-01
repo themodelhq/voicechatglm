@@ -6,7 +6,7 @@ const { artifactConfig, persistGeneratedArtifact } = require('./artifacts.cjs');
 const { createObjectStore } = require('./files/object-storage.cjs');
 const WORKER_ID = `scrape-${process.pid}-${randomUUID()}`;
 const POLL_MS = 1500;
-const LEASE_MS = 120000;
+const LEASE_MS = 300000;
 function publicJob(row) {
   return row && { id: row.id, status: row.status, pagesVisited: Number(row.pages_visited || 0), pagesDiscovered: Number(row.pages_discovered || 0), productsFound: Number(row.products_found || 0), failedPages: Number(row.failed_pages || 0), artifactId: row.artifact_id || undefined, progress: row.progress || {}, errorCode: row.error_code || undefined, createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at || undefined };
 }
