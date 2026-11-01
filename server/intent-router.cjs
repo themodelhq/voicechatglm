@@ -33,7 +33,7 @@ function productCataloguePayload(message, workflow) {
   const headers = ['Product Name','Description','Price','Currency','Availability','SKU','Brand','Rating','Review Count','Product URL','Image URLs'];
   const warning = workflow.partial ? ' Coverage is partial: ' + workflow.crawl.queuedButNotVisited + ' discovered page(s) were not visited and ' + workflow.failures.length + ' page(s) failed.' : '';
   const response = products.length
-    ? 'Website crawl retrieved **' + workflow.pages.length + '** pages and extracted **' + products.length + '** structured product record(s). The workbook contains the product details and image URLs exposed by the website.' + warning + '\n\nThe Excel workbook is attached to this response.'
+    ? 'Website crawl retrieved **' + workflow.pages.length + '** pages and extracted **' + products.length + '** structured product record(s). The workbook contains the product details and image URLs exposed by the website.' + warning + '\n\nThe extracted records are being packaged as an Excel workbook for download.'
     : 'Website crawl retrieved **' + workflow.pages.length + '** pages, but no structured product records were exposed in the retrieved HTML. I have not invented product details. ' + (workflow.partial ? 'The crawl was partial.' : 'The crawl completed within its configured limits.') + ' ' + workflow.failures.length + ' page(s) failed; ' + workflow.crawl.queuedButNotVisited + ' discovered page(s) remained.';
   return { response, artifactData: products.length ? { format: 'xlsx', title: 'Website Product Catalogue', rows: [headers, ...products] } : undefined, count: products.length };
 }
