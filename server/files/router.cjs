@@ -118,7 +118,8 @@ async function loadRecords(store, files, policy, signal, env = process.env) {
       substage = 'validate_extraction_storage_key';
       if (!file.extractionStorageKey) throw Object.assign(new Error('The private extraction artifact is unavailable.'), { code: 'ANALYSIS_UNAVAILABLE' });
       substage = 'read_extraction_artifact';
-      const artifact = await store.getJson(file.extractionStorageKey, Math.max(policy.maxExtractedCharacters * Math.max(1, policy.maxFilesPerMessage) * 4, 512 * 1024), signal);
+      const artifactReadLimit = Math.min(64 * 1024 * 1024, Math.max(2 * 1024 * 1024, policy.maxIndividualBytes * 8 + 1024 * 1024));
+      const artifact = await store.getJson(file.extractionStorageKey, artifactReadLimit, signal);
       substage = 'validate_extraction_artifact';
       if (!artifact?.extraction || typeof artifact.extraction !== 'object') throw Object.assign(new Error('The private extraction artifact is invalid.'), { code: 'ANALYSIS_UNAVAILABLE' });
       let extraction = artifact.extraction;
