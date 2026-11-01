@@ -17,7 +17,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   const maxLinks = Math.max(1, Math.min(20_000, Number(retrievalConfiguration.maxLinks) || 10_000));
   // Product catalogue mode: fetch a small set of discovery/listing pages, then
   // retrieve only URLs that look like individual product pages.
-  const maxDiscoveryPages = 3;
+  const maxDiscoveryPages = 2;
   const seeds = urls.map(canonicalPageUrl).filter(Boolean);
   const hosts = new Set(seeds.map(value => new URL(value).hostname.toLowerCase()));
   const productQueue = [];
