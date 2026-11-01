@@ -42,23 +42,23 @@ function deterministicCsvAnswer(records, question) {
   const placeholders = new Set(['', 'n/a', 'na', 'n.a.', 'nil', 'null', 'none', 'not applicable', '-', '--']);
   const fdaIndex = headers.findIndex(header => normalized(header).replace(/[^a-z0-9]/g, '') === 'fda');
   const asksPopulated = /(populated|filled|non.?empty|not empty|has value|has values|present|available)/.test(lower);
-  const asksFda = /\\bfda\\b/.test(lower);
+  const asksFda = /\bfda\b/.test(lower);
   const asksExtract = /(extract|list|show|find|return|which|identify)/.test(lower);
   if (fdaIndex < 0 || !asksFda || !asksPopulated || !asksExtract) return undefined;
-  const productIndexes = headers.map((header, index) => ({ header, index })).filter(item => /(^|\\b)(product|name|sku|item|title|config|barcode|gtin|id)(\\b|$)/i.test(item.header));
+  const productIndexes = headers.map((header, index) => ({ header, index })).filter(item => /(^|\b)(product|name|sku|item|title|config|barcode|gtin|id)(\b|$)/i.test(item.header));
   const selected = rows.map((row, index) => ({ row, rowNumber: index + 2 })).filter(item => !placeholders.has(normalized(item.row[fdaIndex])));
   const outputColumns = [...productIndexes.map(item => item.index), fdaIndex].filter((value, index, list) => list.indexOf(value) === index);
   const outputHeaders = outputColumns.map(index => headers[index]);
   const output = selected.map(item => outputColumns.map(index => item.row[index] ?? ''));
-  const escapeCell = value => String(value ?? '').replace(/\\|/g, '\\\\|').replace(/\\r?\\n/g, ' ');
-  const table = [outputHeaders, ...output].map(row => '| ' + row.map(escapeCell).join(' | ') + ' |').join('\\n');
+  const escapeCell = value => String(value ?? '').replace(/\|/g, '\\\|').replace(/\r?\n/g, ' ');
+  const table = [outputHeaders, ...output].map(row => '| ' + row.map(escapeCell).join(' | ') + ' |').join('\n');
   const total = rows.length;
   return {
     response: selected.length
-      ? `Found **${selected.length}** of **${total}** product records with a populated FDA column. Placeholder values excluded: blank, N/A, NA, NIL, NULL, NONE, NOT APPLICABLE and dashes.\\n\\n${table}\\n\\nSource row numbers refer to the original CSV, starting at row 2.`
+      ? `Found **${selected.length}** of **${total}** product records with a populated FDA column. Placeholder values excluded: blank, N/A, NA, NIL, NULL, NONE, NOT APPLICABLE and dashes.\n\n${table}\n\nSource row numbers refer to the original CSV, starting at row 2.`
       : `No product records have a populated FDA column. Checked all ${total} product records.`,
     sources: [{ filename: csvRecord.filename, location: `Complete CSV data rows 2–${rows.length + 1}`, truncated: false }],
-    exportData: { baseFilename: String(csvRecord.filename || 'fda_populated_products').replace(/\\.[^.]*$/, '').replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 100) || 'fda_populated_products', headers: outputHeaders, rows: output },
+    exportData: { baseFilename: String(csvRecord.filename || 'fda_populated_products').replace(/\.[^.]*$/, '').replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 100) || 'fda_populated_products', headers: outputHeaders, rows: output },
     truncated: false, partial: false, coverage: [], analysisWindows: 0,
     retention: 'The original object and structured extraction artifact remain private and available only to the owner until expiry or deletion.'
   };
