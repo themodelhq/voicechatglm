@@ -36,7 +36,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   let discoveryVisited = Number(resumeState?.discoveryVisited || 0);
   let productPagesVisited = Number(resumeState?.productPagesVisited || 0);
   let batchProcessed = 0;
-  const batchLimit = background ? maxPages : Math.min(3, Math.max(1, Number(batchPageLimit) || 3));
+  const batchLimit = background ? maxPages : Math.min(16, Math.max(1, Number(batchPageLimit) || 12));
   while ((discoveryQueue.length || productQueue.length) && batchProcessed < batchLimit) {
     assertNotCancelled(signal);
     // Always finish catalogue discovery before consuming the product queue. This
