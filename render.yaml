@@ -153,7 +153,7 @@ services:
       - key: WEB_SCRAPING_MAX_LINKS
         value: "10000"
       - key: WEB_SCRAPING_CONCURRENCY
-        value: "2"
+        value: "4"
       - key: WEB_SCRAPING_MAX_REDIRECTS
         value: "3"
       - key: WEB_SCRAPING_BURST_PER_MINUTE
