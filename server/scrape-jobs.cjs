@@ -39,7 +39,7 @@ async function advanceScrapeJob(userId, id) {
   try {
     const cfg=webRetrievalConfig(process.env);
     if(!cfg.enabled||!cfg.configured)throw Object.assign(new Error('Website retrieval is disabled or misconfigured.'),{code:'CAPABILITY_UNAVAILABLE'});
-    const workflow=await runScrape({urls:Array.isArray(job.seed_urls)?job.seed_urls:[],retrievalConfiguration:cfg,background:false,batchPageLimit:3,resumeState:job.progress?.workflowState,onProgress:async snapshot=>{
+    const workflow=await runScrape({urls:Array.isArray(job.seed_urls)?job.seed_urls:[],retrievalConfiguration:cfg,background:false,batchPageLimit:12,resumeState:job.progress?.workflowState,onProgress:async snapshot=>{
       await getPool().query("UPDATE website_scrape_jobs SET pages_visited=$2,pages_discovered=$3,products_found=$4,failed_pages=$5,progress=$6::jsonb,lease_expires_at=NOW()+INTERVAL '90 seconds',updated_at=NOW() WHERE id=$1 AND worker_id=$7",
       [id,snapshot.crawl?.pagesVisited||snapshot.pages.length,snapshot.crawl?.pagesDiscovered||0,snapshot.crawl?.productRecordsFound||0,snapshot.failures.length,
       JSON.stringify({phase:snapshot.crawl?.phase,batchSize:snapshot.crawl?.batchSize||0,pagesVisited:snapshot.crawl?.pagesVisited||0,productRecordsFound:snapshot.crawl?.productRecordsFound||0,queuedButNotVisited:snapshot.crawl?.queuedButNotVisited||0,discoveryPagesVisited:snapshot.crawl?.discoveryPagesVisited||0,productPagesVisited:snapshot.crawl?.productPagesVisited||0,productUrlsDiscovered:snapshot.crawl?.productUrlsDiscovered||0,productUrlsRemaining:snapshot.crawl?.productUrlsRemaining||0,discoveryPagesRemaining:snapshot.crawl?.discoveryPagesRemaining||0,workflowState:snapshot.crawl?.resumeState}),API_BATCH_ID]);
