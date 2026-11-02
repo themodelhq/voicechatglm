@@ -51,9 +51,19 @@ async function advanceScrapeJob(userId, id) {
     const repository=require('./auth.cjs').repositoryFor(process.env),store=createObjectStore(artifacts.storage);
     const artifact=await persistGeneratedArtifact({repository,store,userId:job.user_id,conversationId:job.conversation_id,messageId:job.assistant_message_id,jobId:id,title:'Website Product Catalogue',content:'Website product catalogue',format:'xlsx',rows,expiresAt:new Date(Date.now()+artifacts.retentionMs)});
     const status=workflow.partial?'partial':'completed';
-    await getPool().query("UPDATE website_scrape_jobs SET status=$2,pages_visited=$3,pages_discovered=$4,products_found=$5,failed_pages=$6,artifact_id=$7,progress=$8::jsonb,completed_at=NOW(),updated_at=NOW(),lease_expires_at=NULL,worker_id=NULL WHERE id=$1 AND worker_id=$9",
-    [id,status,workflow.pages.length,workflow.crawl?.pagesDiscovered||workflow.pages.length,count,workflow.failures.length,artifact.id,JSON.stringify({phase:'completed',pagesVisited:workflow.pages.length,productRecordsFound:count,queuedButNotVisited:workflow.crawl?.queuedButNotVisited||0}),API_BATCH_ID]);
-    if(job.assistant_message_id)await repository.updateConversationMessage({userId:job.user_id,conversationId:job.conversation_id,id:job.assistant_message_id,content:`The website crawl retrieved ${workflow.pages.length} pages and extracted ${count} product record(s). The Excel workbook is ready.`,status,metadata:{route:'website_scraping',artifacts:[{id:artifact.id,filename:artifact.displayFilename||artifact.filename,format:'xlsx',contentType:artifact.contentType,size:artifact.size,status:artifact.status||'available',checksum:artifact.checksum,preview:artifact.preview,createdAt:artifact.createdAt,expiresAt:artifact.expiresAt,messageId:artifact.messageId}],scrapeJobId:id}}).catch(()=>undefined);
+    const rawRecords=workflow.crawl?.productRecordsFound ?? workflow.pages.reduce((total,page)=>total+(page.products?.length||0),0);
+    const finalProgress={
+      phase:'completed',pagesVisited:workflow.crawl?.pagesVisited ?? workflow.pages.length+workflow.failures.length,
+      pagesDiscovered:workflow.crawl?.pagesDiscovered ?? workflow.pages.length+workflow.failures.length,
+      productRecordsFound:rawRecords,uniqueProducts:count,queuedButNotVisited:workflow.crawl?.queuedButNotVisited||0,
+      discoveryPagesVisited:workflow.crawl?.discoveryPagesVisited||0,productPagesVisited:workflow.crawl?.productPagesVisited||0,
+      productUrlsDiscovered:workflow.crawl?.productUrlsDiscovered||0,productUrlsRemaining:workflow.crawl?.productUrlsRemaining||0,
+      discoveryPagesRemaining:workflow.crawl?.discoveryPagesRemaining||0,batchSize:0
+    };
+    const saved=await getPool().query("UPDATE website_scrape_jobs SET status=$2,pages_visited=$3,pages_discovered=$4,products_found=$5,failed_pages=$6,artifact_id=$7,progress=$8::jsonb,completed_at=NOW(),updated_at=NOW(),lease_expires_at=NULL,worker_id=NULL WHERE id=$1 AND worker_id=$9 RETURNING id",
+    [id,status,finalProgress.pagesVisited,finalProgress.pagesDiscovered,count,workflow.failures.length,artifact.id,JSON.stringify(finalProgress),API_BATCH_ID]);
+    if(!saved.rows.length) throw Object.assign(new Error('The crawl finished, but its final job state could not be saved. The workbook was not attached.'),{code:'JOB_FINALIZE_CONFLICT'});
+    if(job.assistant_message_id) await repository.updateConversationMessage({userId:job.user_id,conversationId:job.conversation_id,id:job.assistant_message_id,content:`The website crawl retrieved ${finalProgress.pagesVisited} pages and extracted ${rawRecords} raw product record(s), which were consolidated into ${count} product row(s). The Excel workbook is ready.${workflow.partial?\` Coverage is partial: ${workflow.failures.length} page(s) failed.\`:''}\n\nThe workbook contains product details and image URLs exposed by the website.`,status,metadata:{route:'website_scraping',artifacts:[{id:artifact.id,filename:artifact.displayFilename||artifact.filename,format:'xlsx',contentType:artifact.contentType,size:artifact.size,status:artifact.status||'available',checksum:artifact.checksum,preview:artifact.preview,createdAt:artifact.createdAt,expiresAt:artifact.expiresAt,messageId:artifact.messageId}],scrapeJobId:id}});
     return getScrapeJob(userId,id);
   } catch(error){
     const code=String(error?.code||'SCRAPE_FAILED').slice(0,80);
@@ -90,14 +100,18 @@ function catalogueRows(workflow) {
   const byIdentity = new Map();
   const clean = value => value === undefined || value === null || String(value).trim() === '' ? undefined : String(value).trim();
   const canonical = value => { try { const url = new URL(value); url.hash = ''; for (const key of [...url.searchParams.keys()]) if (/^(utm_|fbclid$|gclid$)/i.test(key)) url.searchParams.delete(key); return url.toString(); } catch { return clean(value); } };
+  const normalize = value => String(value || '').normalize('NFKC').toLowerCase().replace(/\\s+/g, ' ').trim();
   for (const page of workflow.pages || []) for (const item of page.products || []) {
-    const url = canonical(item.url || page.finalUrl || page.url);
+    // A category/listing URL is never a product identity. Prefer SKU, then the
+    // individual product URL, then a conservative name+brand fallback.
+    const url = canonical(item.url);
     const sku = clean(item.sku);
-    const key = url ? `url:${url.toLowerCase()}` : sku ? `sku:${sku.toLowerCase()}` : `name:${clean(item.name || page.title)?.toLowerCase() || randomUUID()}`;
+    const name = clean(item.name || (page.pageType === 'product' ? page.title : undefined));
+    const brand = clean(item.brand);
+    const key = sku ? `sku:${normalize(sku)}` : url ? `url:${url.toLowerCase()}` : name ? `name:${normalize(name)}|brand:${normalize(brand)}` : `unidentified:${randomUUID()}`;
     const existing = byIdentity.get(key) || { name: '', description: '', price: '', currency: '', availability: '', sku: '', brand: '', rating: '', reviewCount: '', url: '', imageUrls: [] };
-    // Detail-page values enrich listing-card values; absent values never erase known data.
     for (const field of ['name','description','price','currency','availability','sku','brand','rating','reviewCount']) {
-      const value = clean(item[field]);
+      const value = clean(item[field] ?? (field === 'name' ? name : undefined));
       if (value && (!existing[field] || page.pageType === 'product' && field !== 'sku')) existing[field] = value;
     }
     if (url && (!existing.url || page.pageType === 'product')) existing.url = url;
