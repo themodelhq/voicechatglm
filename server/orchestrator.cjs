@@ -9,6 +9,19 @@ function researchPlan({ message, includeRetrieval }) { const query = researchQue
 async function runResearch({ message, searchConfiguration, retrievalConfiguration, signal, fetchImpl, retrievalOptions }) { const plan = researchPlan({ message, includeRetrieval: Boolean(retrievalConfiguration?.enabled && retrievalConfiguration?.configured) }); if (plan.steps.length > MAX_WORKFLOW_STEPS) throw new Error('Workflow plan exceeds the permitted step limit.'); assertNotCancelled(signal); const search = await searchWeb({ query: plan.steps[0].inputs.query, configuration: searchConfiguration, signal, fetchImpl }); if (!search.results.length) return { plan, search, pages: [], partial: true, notices: ['The search provider returned no results for this query.'] }; const candidates = search.results.slice(0, Math.min(2, retrievalConfiguration?.maxPages || 0)); const fetched = plan.steps.some(step => step.operation === 'website_retrieval') ? await boundedMap(candidates, Math.min(2, retrievalConfiguration.concurrency), candidate => retrievePage({ url: candidate.url, configuration: retrievalConfiguration, signal, ...retrievalOptions }), signal) : []; const pages = fetched.filter(item => item.ok).map(item => item.value); const failures = fetched.filter(item => !item.ok); const notices = []; if (!pages.length && fetched.length) notices.push('Search results were found, but no selected page could be retrieved under the configured safety policy.'); if (failures.length) notices.push(`${failures.length} selected source page(s) could not be retrieved.`); return { plan, search, pages, partial: Boolean(failures.length), notices };
 }
 function canonicalPageUrl(value) { try { const url = new URL(value); url.hash = ''; for (const key of [...url.searchParams.keys()]) if (/^(utm_|fbclid$|gclid$)/i.test(key)) url.searchParams.delete(key); return url.toString(); } catch { return undefined; } }
+function canonicalProductUrl(value) {
+  const canonical = canonicalPageUrl(value);
+  if (!canonical) return undefined;
+  try {
+    const url = new URL(canonical);
+    // WooCommerce variation selections and add-to-cart actions are states of
+    // one parent product, not separate product pages to crawl.
+    for (const key of [...url.searchParams.keys()]) {
+      if (/^(attribute_|variation_id$|add-to-cart$|quantity$|wc-ajax$|_wpnonce$)/i.test(key)) url.searchParams.delete(key);
+    }
+    return url.toString();
+  } catch { return canonical; }
+}
 function sameSite(left, right) { try { const a = new URL(left); const b = new URL(right); return a.hostname.toLowerCase() === b.hostname.toLowerCase(); } catch { return false; } }
 function crawlPriority(value) { const path = (() => { try { return new URL(value).pathname.toLowerCase(); } catch { return ''; } })(); if (/\/(products?|product-detail|item)\//.test(path)) return 0; if (/\/(collections?|categories|catalog|shop|store|products?)\b/.test(path)) return 1; if (/[?&](page|paged|p)=\d+/i.test(value) || /\/(page|pages)\//.test(path)) return 2; return 3; }
 async function runScrape({ urls, retrievalConfiguration, signal, retrievalOptions, onProgress, background = false, resumeState, batchPageLimit }) {
@@ -31,7 +44,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   const visited = new Set(resumeState?.visited || []), pages = [...(resumeState?.pages || [])], failures = [...(resumeState?.failures || [])];
   const productUrl = value => { try { const url = new URL(value), path = url.pathname.toLowerCase(); return /(?:^|\/)(?:products?|produits?|product-detail|item|p|artikel|produto)\/(?:[^/]+)(?:\/|$)/.test(path) || /[?&](?:product_id|product|sku)=/i.test(url.search); } catch { return false; } };
   const listingUrl = value => { try { const url = new URL(value), path = url.pathname.toLowerCase(); return /(?:^|\/)(?:collections?|categories|category|catalog|shop|store|products|clothing|men|women|kids|children)(?:\/|$)/.test(path) || /[?&](?:page|paged|p)=\d+/i.test(url.search); } catch { return false; } };
-  const enqueueProduct = value => { const canonical=canonicalPageUrl(value); if(!canonical||!hosts.has(new URL(canonical).hostname.toLowerCase())||productQueued.has(canonical)||visited.has(canonical))return; if(productQueued.size>=maxLinks)return; productQueued.add(canonical);productQueue.push(canonical); };
+  const enqueueProduct = value => { const canonical=canonicalProductUrl(value); if(!canonical||!hosts.has(new URL(canonical).hostname.toLowerCase())||productQueued.has(canonical)||visited.has(canonical))return; if(productQueued.size>=maxLinks)return; productQueued.add(canonical);productQueue.push(canonical); };
   const enqueueDiscovery = value => { const canonical=canonicalPageUrl(value); if(!canonical||!hosts.has(new URL(canonical).hostname.toLowerCase())||discoveryQueued.has(canonical)||visited.has(canonical)||!listingUrl(canonical))return; if(discoveryQueued.size>=maxDiscoveryPages)return;discoveryQueued.add(canonical);discoveryQueue.push(canonical); };
   // Prefer the store's product sitemap to exhaustively crawling category,
   // navigation, and pagination links. This is especially effective for
