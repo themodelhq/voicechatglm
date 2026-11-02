@@ -75,7 +75,7 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
               updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id === message.id ? { ...entry, status: job.status === 'partial' ? 'partial' : 'complete', content: `Website crawl finished: ${progress.rawProductRecords ?? job.productsFound} raw product record(s) consolidated into ${progress.uniqueProducts ?? job.productsFound} unique product(s) from ${job.pagesVisited} pages. The Excel workbook is ready.`, scrapeProgress: progress, artifacts: [artifact] } : entry) }));
               window.clearInterval(timer); break;
             }
-            updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id === message.id ? { ...entry, status: 'error', content: 'The crawl stopped, but the server did not return a downloadable workbook. The crawl data has been retained; please retry workbook finalization rather than restarting the crawl.', scrapeProgress: progress } : entry) }));
+            updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id === message.id ? { ...entry, status: 'error', content: 'The crawl stopped, but the server did not return a downloadable workbook. The job record is retained for diagnosis; do not restart the crawl until we confirm whether its saved results can be recovered.', scrapeProgress: progress } : entry) }));
             window.clearInterval(timer); break;
           }
           if (job.status === 'failed') {
