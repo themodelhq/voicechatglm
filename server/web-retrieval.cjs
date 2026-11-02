@@ -28,7 +28,7 @@ async function robotsRulesFor(url, configuration, options) {
   const pending = (async () => {
     try {
       const response = await retrieveWithRedirects(new URL('/robots.txt', origin), { ...configuration, maxResponseBytes: Math.min(configuration.maxResponseBytes, 128 * 1024), maxRedirects: 1 }, options);
-      return response.status === 200 && /^text\\//.test(contentType(response.headers)) ? response.body.toString('utf8') : '';
+      return response.status === 200 && /^text\//.test(contentType(response.headers)) ? response.body.toString('utf8') : '';
     } catch { return ''; }
   })();
   robotsCache.set(origin, { rules: pending, expiresAt: Date.now() + ROBOTS_CACHE_TTL_MS });
