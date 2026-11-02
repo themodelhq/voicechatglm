@@ -56,7 +56,9 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
             phase: typeof job.progress?.phase === 'string' ? job.progress.phase : undefined,
             pagesVisited: job.pagesVisited,
             pagesDiscovered: job.pagesDiscovered,
-            productsFound: job.productsFound,
+            productsFound: Number(job.progress?.productRecordsFound ?? job.productsFound),
+            rawProductRecords: Number(job.progress?.productRecordsFound ?? job.productsFound),
+            uniqueProducts: Number(job.progress?.uniqueProducts ?? job.productsFound),
             failedPages: job.failedPages,
             queuedButNotVisited: Number(job.progress?.queuedButNotVisited || 0),
             discoveryPagesVisited: Number(job.progress?.discoveryPagesVisited || 0),
@@ -70,8 +72,10 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
           if (job.status === 'completed' || job.status === 'partial') {
             if (job.artifactId) {
               const artifact = await getArtifact(job.artifactId); if (!active) return;
-              updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id === message.id ? { ...entry, status: job.status === 'partial' ? 'partial' : 'complete', content: `Website crawl finished: ${job.productsFound} product record(s) extracted from ${job.pagesVisited} pages. The Excel workbook is ready.`, scrapeProgress: progress, artifacts: [artifact] } : entry) }));
+              updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id === message.id ? { ...entry, status: job.status === 'partial' ? 'partial' : 'complete', content: `Website crawl finished: ${progress.rawProductRecords ?? job.productsFound} raw product record(s) consolidated into ${progress.uniqueProducts ?? job.productsFound} unique product(s) from ${job.pagesVisited} pages. The Excel workbook is ready.`, scrapeProgress: progress, artifacts: [artifact] } : entry) }));
+              window.clearInterval(timer); break;
             }
+            updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id === message.id ? { ...entry, status: 'error', content: 'The crawl stopped, but the server did not return a downloadable workbook. The crawl data has been retained; please retry workbook finalization rather than restarting the crawl.', scrapeProgress: progress } : entry) }));
             window.clearInterval(timer); break;
           }
           if (job.status === 'failed') {
@@ -192,7 +196,8 @@ function ScrapeProgress({ progress }: { progress: NonNullable<Message['scrapePro
     ['Pages discovered', progress.pagesDiscovered ?? 0],
     ['Product links found', progress.productUrlsDiscovered ?? 0],
     ['Product pages visited', progress.productPagesVisited ?? 0],
-    ['Product records extracted', progress.productsFound ?? 0],
+    ['Raw product records', progress.rawProductRecords ?? progress.productsFound ?? 0],
+    ['Unique products', progress.uniqueProducts ?? progress.productsFound ?? 0],
     ['Pages still queued', progress.queuedButNotVisited ?? 0],
     ['Pages failed', progress.failedPages ?? 0]
   ] as const;
