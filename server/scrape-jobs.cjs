@@ -58,7 +58,7 @@ async function advanceScrapeJob(userId, id) {
       productRecordsFound:rawRecords,uniqueProducts:count,queuedButNotVisited:workflow.crawl?.queuedButNotVisited||0,
       discoveryPagesVisited:workflow.crawl?.discoveryPagesVisited||0,productPagesVisited:workflow.crawl?.productPagesVisited||0,
       productUrlsDiscovered:workflow.crawl?.productUrlsDiscovered||0,productUrlsRemaining:workflow.crawl?.productUrlsRemaining||0,
-      discoveryPagesRemaining:workflow.crawl?.discoveryPagesRemaining||0,batchSize:0
+      discoveryPagesRemaining:workflow.crawl?.discoveryPagesRemaining||0,batchSize:0,workflowState:workflow.crawl?.resumeState
     };
     const saved=await getPool().query("UPDATE website_scrape_jobs SET status=$2,pages_visited=$3,pages_discovered=$4,products_found=$5,failed_pages=$6,artifact_id=$7,progress=$8::jsonb,completed_at=NOW(),updated_at=NOW(),lease_expires_at=NULL,worker_id=NULL WHERE id=$1 AND worker_id=$9 RETURNING id",
     [id,status,finalProgress.pagesVisited,finalProgress.pagesDiscovered,count,workflow.failures.length,artifact.id,JSON.stringify(finalProgress),API_BATCH_ID]);
