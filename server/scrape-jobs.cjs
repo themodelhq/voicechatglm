@@ -63,7 +63,8 @@ async function advanceScrapeJob(userId, id) {
     const saved=await getPool().query("UPDATE website_scrape_jobs SET status=$2,pages_visited=$3,pages_discovered=$4,products_found=$5,failed_pages=$6,artifact_id=$7,progress=$8::jsonb,completed_at=NOW(),updated_at=NOW(),lease_expires_at=NULL,worker_id=NULL WHERE id=$1 AND worker_id=$9 RETURNING id",
     [id,status,finalProgress.pagesVisited,finalProgress.pagesDiscovered,count,workflow.failures.length,artifact.id,JSON.stringify(finalProgress),API_BATCH_ID]);
     if(!saved.rows.length) throw Object.assign(new Error('The crawl finished, but its final job state could not be saved. The workbook was not attached.'),{code:'JOB_FINALIZE_CONFLICT'});
-    if(job.assistant_message_id) await repository.updateConversationMessage({userId:job.user_id,conversationId:job.conversation_id,id:job.assistant_message_id,content:`The website crawl retrieved ${finalProgress.pagesVisited} pages and extracted ${rawRecords} raw product record(s), which were consolidated into ${count} product row(s). The Excel workbook is ready.${workflow.partial?\` Coverage is partial: ${workflow.failures.length} page(s) failed.\`:''}\n\nThe workbook contains product details and image URLs exposed by the website.`,status,metadata:{route:'website_scraping',artifacts:[{id:artifact.id,filename:artifact.displayFilename||artifact.filename,format:'xlsx',contentType:artifact.contentType,size:artifact.size,status:artifact.status||'available',checksum:artifact.checksum,preview:artifact.preview,createdAt:artifact.createdAt,expiresAt:artifact.expiresAt,messageId:artifact.messageId}],scrapeJobId:id}});
+    const coverageSuffix=workflow.partial ? ` Coverage is partial: ${workflow.failures.length} page(s) failed.` : '';
+    if(job.assistant_message_id) await repository.updateConversationMessage({userId:job.user_id,conversationId:job.conversation_id,id:job.assistant_message_id,content:`The website crawl retrieved ${finalProgress.pagesVisited} pages and extracted ${rawRecords} raw product record(s), which were consolidated into ${count} product row(s). The Excel workbook is ready.${coverageSuffix}\n\nThe workbook contains product details and image URLs exposed by the website.`,status,metadata:{route:'website_scraping',artifacts:[{id:artifact.id,filename:artifact.displayFilename||artifact.filename,format:'xlsx',contentType:artifact.contentType,size:artifact.size,status:artifact.status||'available',checksum:artifact.checksum,preview:artifact.preview,createdAt:artifact.createdAt,expiresAt:artifact.expiresAt,messageId:artifact.messageId}],scrapeJobId:id}});
     return getScrapeJob(userId,id);
   } catch(error){
     const code=String(error?.code||'SCRAPE_FAILED').slice(0,80);
@@ -100,7 +101,7 @@ function catalogueRows(workflow) {
   const byIdentity = new Map();
   const clean = value => value === undefined || value === null || String(value).trim() === '' ? undefined : String(value).trim();
   const canonical = value => { try { const url = new URL(value); url.hash = ''; for (const key of [...url.searchParams.keys()]) if (/^(utm_|fbclid$|gclid$)/i.test(key)) url.searchParams.delete(key); return url.toString(); } catch { return clean(value); } };
-  const normalize = value => String(value || '').normalize('NFKC').toLowerCase().replace(/\\s+/g, ' ').trim();
+  const normalize = value => String(value || '').normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
   for (const page of workflow.pages || []) for (const item of page.products || []) {
     // A category/listing URL is never a product identity. Prefer SKU, then the
     // individual product URL, then a conservative name+brand fallback.
