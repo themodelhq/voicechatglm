@@ -1,6 +1,6 @@
 /* Bounded, deterministic orchestration. Plans are generated from server rules only;
  * model output is never treated as executable instructions. */
-const { searchWeb, sourcesForModel } = require('./web-search.cjs'); const { retrievePage } = require('./web-retrieval.cjs');
+const { searchWeb, sourcesForModel } = require('./web-search.cjs'); const { retrievePage, discoverSitemapProducts } = require('./web-retrieval.cjs');
 const MAX_WORKFLOW_STEPS = 8; const MAX_RESEARCH_SOURCES = 5;
 function assertNotCancelled(signal) { if (signal?.aborted) throw Object.assign(new Error('The workflow was cancelled.'), { code: 'CANCELLED', status: 499 }); }
 function boundedMap(values, concurrency, operation, signal) { return new Promise((resolve, reject) => { const results = new Array(values.length); let next = 0; let active = 0; let done = 0; let rejected = false; const launch = () => { if (done === values.length) return resolve(results); while (active < concurrency && next < values.length && !rejected) { const index = next++; active += 1; Promise.resolve().then(() => { assertNotCancelled(signal); return operation(values[index], index); }).then(value => { results[index] = { ok: true, value }; }).catch(error => { if (signal?.aborted || error?.code === 'CANCELLED') { rejected = true; reject(Object.assign(new Error('The workflow was cancelled.'), { code: 'CANCELLED', status: 499 })); return; } results[index] = { ok: false, error: error?.code || 'RETRIEVAL_FAILED', message: 'This source could not be retrieved.' }; }).finally(() => { active -= 1; done += 1; if (!rejected) launch(); }); } }; launch(); }); }
@@ -33,6 +33,23 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   const listingUrl = value => { try { const url = new URL(value), path = url.pathname.toLowerCase(); return /(?:^|\/)(?:collections?|categories|category|catalog|shop|store|products|clothing|men|women|kids|children)(?:\/|$)/.test(path) || /[?&](?:page|paged|p)=\d+/i.test(url.search); } catch { return false; } };
   const enqueueProduct = value => { const canonical=canonicalPageUrl(value); if(!canonical||!hosts.has(new URL(canonical).hostname.toLowerCase())||productQueued.has(canonical)||visited.has(canonical))return; if(productQueued.size>=maxLinks)return; productQueued.add(canonical);productQueue.push(canonical); };
   const enqueueDiscovery = value => { const canonical=canonicalPageUrl(value); if(!canonical||!hosts.has(new URL(canonical).hostname.toLowerCase())||discoveryQueued.has(canonical)||visited.has(canonical)||!listingUrl(canonical))return; if(discoveryQueued.size>=maxDiscoveryPages)return;discoveryQueued.add(canonical);discoveryQueue.push(canonical); };
+  // Prefer the store's product sitemap to exhaustively crawling category,
+  // navigation, and pagination links. This is especially effective for
+  // WooCommerce catalogues where product-sitemap.xml lists canonical products.
+  let sitemapChecked = Boolean(resumeState?.sitemapChecked);
+  let sitemapProductsFound = Number(resumeState?.sitemapProductsFound || 0);
+  let commercePlatforms = [...(resumeState?.commercePlatforms || [])];
+  if (!sitemapChecked) {
+    try {
+      const sitemap = await discoverSitemapProducts({ urls: seeds, configuration: retrievalConfiguration, signal, ...retrievalOptions });
+      for (const product of sitemap.productUrls || []) enqueueProduct(product);
+      sitemapProductsFound = (sitemap.productUrls || []).length;
+      commercePlatforms = sitemap.platforms || [];
+    } catch (error) {
+      if (signal?.aborted || error?.code === 'CANCELLED') throw error;
+    }
+    sitemapChecked = true;
+  }
   let discoveryVisited = Number(resumeState?.discoveryVisited || 0);
   let productPagesVisited = Number(resumeState?.productPagesVisited || 0);
   let batchProcessed = 0;
@@ -111,7 +128,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   const remaining = discoveryQueue.length + productQueue.length;
   const hasMore = remaining > 0;
   const partial = Boolean(failures.length || hasMore || (background && pages.length + failures.length >= maxPages));
-  const nextState = { seeds, hosts:[...hosts], discoveryQueue, discoveryQueued:[...discoveryQueued], productQueue, productQueued:[...productQueued], visited:[...visited], pages:pages.map(page=>({url:page.url,requestedUrl:page.requestedUrl,finalUrl:page.finalUrl,title:page.title,pageType:page.pageType,products:page.products||[]})), failures, discoveryVisited, productPagesVisited };
+  const nextState = { seeds, hosts:[...hosts], discoveryQueue, discoveryQueued:[...discoveryQueued], productQueue, productQueued:[...productQueued], visited:[...visited], pages:pages.map(page=>({url:page.url,requestedUrl:page.requestedUrl,finalUrl:page.finalUrl,title:page.title,pageType:page.pageType,products:page.products||[]})), failures, discoveryVisited, productPagesVisited, sitemapChecked, sitemapProductsFound, commercePlatforms };
   const steps = pages.map((page, index) => ({ id: `retrieve_${index + 1}`, operation: 'website_retrieval', inputs: { url: page.requestedUrl || page.url }, output: 'page_extraction', onError: 'partial', cancellable: true }));
   if (!pages.length) throw Object.assign(new Error('No requested page could be retrieved under the configured safety policy.'), { code: failures[0]?.code || 'RETRIEVAL_FAILED', status: 422, failures });
   return {
