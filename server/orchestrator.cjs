@@ -113,9 +113,11 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
         productUrlsDiscovered: productQueued.size,
         productUrlsRemaining: productQueue.length,
         discoveryPagesRemaining: discoveryQueue.length,
+        sitemapProductsFound, commercePlatforms,
         backgroundMode: Boolean(background), configuredPageLimit,
         effectivePageLimit: maxPages, discoveryPageLimit: maxDiscoveryPages,
         resumeState: {
+          sitemapChecked, sitemapProductsFound, commercePlatforms,
           seeds, hosts:[...hosts], discoveryQueue:[...discoveryQueue], discoveryQueued:[...discoveryQueued],
           productQueue:[...productQueue], productQueued:[...productQueued], visited:[...visited],
           pages:pages.map(item=>({url:item.url,requestedUrl:item.requestedUrl,finalUrl:item.finalUrl,title:item.title,pageType:item.pageType,products:item.products||[]})),
