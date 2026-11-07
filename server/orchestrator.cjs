@@ -45,7 +45,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   // queue once and rebuild from the original shop URL.
   const requestedSeeds = (resumeState?.seeds || urls).map(value => canonicalPageUrl(value)).filter(Boolean);
   const isAysSounTarget = requestedSeeds.some(value => { try { return new URL(value).hostname.toLowerCase() === 'ayssoun.com'; } catch { return false; } });
-  const state = isAysSounTarget && Number(resumeState?.crawlVersion || 0) < 2 ? null : resumeState;
+  const state = isAysSounTarget && Number(resumeState?.crawlVersion || 0) < 3 ? null : resumeState;
   const seeds = (isAysSounTarget && !state)
     ? [
         'https://ayssoun.com/product-category/femme/',
@@ -179,7 +179,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   const remaining = discoveryQueue.length + productQueue.length;
   const hasMore = remaining > 0;
   const partial = Boolean(failures.length || hasMore || (background && pages.length + failures.length >= maxPages));
-  const nextState = { crawlVersion: 2, seeds, hosts:[...hosts], discoveryQueue, discoveryQueued:[...discoveryQueued], productQueue, productQueued:[...productQueued], visited:[...visited], pages:pages.map(page=>({url:page.url,requestedUrl:page.requestedUrl,finalUrl:page.finalUrl,title:page.title,pageType:page.pageType,products:page.products||[]})), failures, discoveryVisited, productPagesVisited, sitemapChecked, sitemapProductsFound, commercePlatforms };
+  const nextState = { crawlVersion: 3, seeds, hosts:[...hosts], discoveryQueue, discoveryQueued:[...discoveryQueued], productQueue, productQueued:[...productQueued], visited:[...visited], pages:pages.map(page=>({url:page.url,requestedUrl:page.requestedUrl,finalUrl:page.finalUrl,title:page.title,pageType:page.pageType,products:page.products||[]})), failures, discoveryVisited, productPagesVisited, sitemapChecked, sitemapProductsFound, commercePlatforms };
   const steps = pages.map((page, index) => ({ id: `retrieve_${index + 1}`, operation: 'website_retrieval', inputs: { url: page.requestedUrl || page.url }, output: 'page_extraction', onError: 'partial', cancellable: true }));
   if (!pages.length) throw Object.assign(new Error('No requested page could be retrieved under the configured safety policy.'), { code: failures[0]?.code || 'RETRIEVAL_FAILED', status: 422, failures });
   return {
