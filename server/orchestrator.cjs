@@ -1,6 +1,6 @@
 /* Bounded, deterministic orchestration. Plans are generated from server rules only;
  * model output is never treated as executable instructions. */
-const { searchWeb, sourcesForModel } = require('./web-search.cjs'); const { retrievePage, discoverSitemapProducts } = require('./web-retrieval.cjs');
+const { searchWeb, sourcesForModel } = require('./web-search.cjs'); const { retrievePage } = require('./web-retrieval.cjs');
 const MAX_WORKFLOW_STEPS = 8; const MAX_RESEARCH_SOURCES = 5;
 function assertNotCancelled(signal) { if (signal?.aborted) throw Object.assign(new Error('The workflow was cancelled.'), { code: 'CANCELLED', status: 499 }); }
 function boundedMap(values, concurrency, operation, signal) { return new Promise((resolve, reject) => { const results = new Array(values.length); let next = 0; let active = 0; let done = 0; let rejected = false; const launch = () => { if (done === values.length) return resolve(results); while (active < concurrency && next < values.length && !rejected) { const index = next++; active += 1; Promise.resolve().then(() => { assertNotCancelled(signal); return operation(values[index], index); }).then(value => { results[index] = { ok: true, value }; }).catch(error => { if (signal?.aborted || error?.code === 'CANCELLED') { rejected = true; reject(Object.assign(new Error('The workflow was cancelled.'), { code: 'CANCELLED', status: 499 })); return; } results[index] = { ok: false, error: error?.code || 'RETRIEVAL_FAILED', message: 'This source could not be retrieved.' }; }).finally(() => { active -= 1; done += 1; if (!rejected) launch(); }); } }; launch(); }); }
@@ -37,32 +37,43 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   const maxLinks = Math.max(1, Math.min(20_000, Number(retrievalConfiguration.maxLinks) || 10_000));
   // Discover a bounded number of listing/category pages before visiting products.
   const maxDiscoveryPages = background ? Math.min(20, Math.max(1, Math.ceil(maxPages * 0.2))) : 2;
-  const seeds = (resumeState?.seeds || urls).map(canonicalPageUrl).filter(Boolean);
+  const seeds = (resumeState?.seeds || urls).map(value => {
+    // AysSoun's homepage is a marketing landing page; its canonical catalogue
+    // entry point is /shop/, which exposes the paginated 63-product listing.
+    try {
+      const url = new URL(value);
+      if (url.hostname.toLowerCase() === 'ayssoun.com' && (url.pathname === '/' || url.pathname === '')) url.pathname = '/shop/';
+      return canonicalPageUrl(url.toString());
+    } catch { return canonicalPageUrl(value); }
+  }).filter(Boolean);
   const hosts = new Set(resumeState?.hosts || seeds.map(value => new URL(value).hostname.toLowerCase()));
   const productQueue = [...(resumeState?.productQueue || [])], productQueued = new Set(resumeState?.productQueued || productQueue);
   const discoveryQueue = [...(resumeState?.discoveryQueue || seeds)], discoveryQueued = new Set(resumeState?.discoveryQueued || discoveryQueue);
   const visited = new Set(resumeState?.visited || []), pages = [...(resumeState?.pages || [])], failures = [...(resumeState?.failures || [])];
   const productUrl = value => { try { const url = new URL(value), path = url.pathname.toLowerCase(); return /(?:^|\/)(?:products?|produits?|product-detail|item|p|artikel|produto)\/(?:[^/]+)(?:\/|$)/.test(path) || /[?&](?:product_id|product|sku)=/i.test(url.search); } catch { return false; } };
-  const listingUrl = value => { try { const url = new URL(value), path = url.pathname.toLowerCase(); return /(?:^|\/)(?:collections?|categories|category|catalog|shop|store|products|clothing|men|women|kids|children)(?:\/|$)/.test(path) || /[?&](?:page|paged|p)=\d+/i.test(url.search); } catch { return false; } };
+  const listingUrl = value => {
+    try {
+      const url = new URL(value), path = url.pathname.toLowerCase();
+      const isAysSoun = url.hostname.toLowerCase() === 'ayssoun.com';
+      if (isAysSoun) {
+        // Follow only the shop's own pagination. Do not crawl its menus,
+        // promotional pages, or every category page as separate discoveries.
+        return /\/shop\/page\/\d+\/?$/.test(path) || /[?&](?:page|paged|product-page)=\d+/i.test(url.search);
+      }
+      return /(?:^|\/)(?:collections?|categories|category|product-category|catalog|shop|store|products|clothing|men|women|kids|children)(?:\/|$)/.test(path)
+        || /\/page\/\d+\/?$/.test(path)
+        || /[?&](?:page|paged|product-page|p)=\d+/i.test(url.search);
+    } catch { return false; }
+  };
   const enqueueProduct = value => { const canonical=canonicalProductUrl(value); if(!canonical||!hosts.has(new URL(canonical).hostname.toLowerCase())||productQueued.has(canonical)||visited.has(canonical))return; if(productQueued.size>=maxLinks)return; productQueued.add(canonical);productQueue.push(canonical); };
   const enqueueDiscovery = value => { const canonical=canonicalPageUrl(value); if(!canonical||!hosts.has(new URL(canonical).hostname.toLowerCase())||discoveryQueued.has(canonical)||visited.has(canonical)||!listingUrl(canonical))return; if(discoveryQueued.size>=maxDiscoveryPages)return;discoveryQueued.add(canonical);discoveryQueue.push(canonical); };
-  // Prefer the store's product sitemap to exhaustively crawling category,
-  // navigation, and pagination links. This is especially effective for
-  // WooCommerce catalogues where product-sitemap.xml lists canonical products.
-  let sitemapChecked = Boolean(resumeState?.sitemapChecked);
-  let sitemapProductsFound = Number(resumeState?.sitemapProductsFound || 0);
-  let commercePlatforms = [...(resumeState?.commercePlatforms || [])];
-  if (!sitemapChecked) {
-    try {
-      const sitemap = await discoverSitemapProducts({ urls: seeds, configuration: retrievalConfiguration, signal, ...retrievalOptions });
-      for (const product of sitemap.productUrls || []) enqueueProduct(product);
-      sitemapProductsFound = (sitemap.productUrls || []).length;
-      commercePlatforms = sitemap.platforms || [];
-    } catch (error) {
-      if (signal?.aborted || error?.code === 'CANCELLED') throw error;
-    }
-    sitemapChecked = true;
-  }
+  // Keep catalogue discovery deliberately simple: retrieve the supplied
+  // shop/listing page, follow its pagination links, and collect product-card
+  // links. Sitemap indexes are intentionally not used because they can contain
+  // stale, variant, attachment, or non-catalogue URLs that inflate the queue.
+  const sitemapChecked = true;
+  const sitemapProductsFound = 0;
+  const commercePlatforms = [];
   let discoveryVisited = Number(resumeState?.discoveryVisited || 0);
   let productPagesVisited = Number(resumeState?.productPagesVisited || 0);
   let batchProcessed = 0;
