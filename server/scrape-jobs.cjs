@@ -33,12 +33,12 @@ async function advanceScrapeJob(userId, id) {
     if(!job){await client.query('COMMIT');return undefined;}
     if(['completed','partial','failed'].includes(job.status)){await client.query('COMMIT');return publicJob(job);}
     const leaseActive = job.lease_expires_at && new Date(job.lease_expires_at).getTime() > Date.now();
-    const progressStale = !job.updated_at || Date.now() - new Date(job.updated_at).getTime() > 60_000;
+    const progressStale = !job.updated_at || Date.now() - new Date(job.updated_at).getTime() > 150_000;
     if(leaseActive && !progressStale){await client.query('COMMIT');return publicJob(job);}
     // Recover abandoned API batches after a minute without persisted progress.
     // Each page retrieval also has a hard deadline, so a healthy batch finishes
     // well before this recovery threshold.
-    await client.query("UPDATE website_scrape_jobs SET status='running',worker_id=$2,lease_expires_at=NOW()+INTERVAL '45 seconds',started_at=COALESCE(started_at,NOW()),updated_at=NOW() WHERE id=$1",[id,API_BATCH_ID]);
+    await client.query("UPDATE website_scrape_jobs SET status='running',worker_id=$2,lease_expires_at=NOW()+INTERVAL '120 seconds',started_at=COALESCE(started_at,NOW()),updated_at=NOW() WHERE id=$1",[id,API_BATCH_ID]);
     await client.query('COMMIT');
   } catch(error){await client.query('ROLLBACK').catch(()=>undefined);throw error;} finally{client.release();}
   try {
