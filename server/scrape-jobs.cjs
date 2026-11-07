@@ -34,7 +34,9 @@ async function advanceScrapeJob(userId, id) {
     if(['completed','partial','failed'].includes(job.status)){await client.query('COMMIT');return publicJob(job);}
     const leaseActive = job.lease_expires_at && new Date(job.lease_expires_at).getTime() > Date.now();
     const progressStale = !job.updated_at || Date.now() - new Date(job.updated_at).getTime() > 150_000;
-    if(leaseActive && !progressStale){await client.query('COMMIT');return publicJob(job);}
+    // A lease only blocks another API batch when a processor actually owns it.
+    // Orphaned lease timestamps with worker_id=NULL must never leave a job idle forever.
+    if(job.worker_id && leaseActive && !progressStale){await client.query('COMMIT');return publicJob(job);}
     // Recover abandoned API batches after a minute without persisted progress.
     // Each page retrieval also has a hard deadline, so a healthy batch finishes
     // well before this recovery threshold.
