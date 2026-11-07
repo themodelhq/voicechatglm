@@ -32,17 +32,22 @@ async function advanceScrapeJob(userId, id) {
     const result=await client.query('SELECT * FROM website_scrape_jobs WHERE id=$1 AND user_id=$2 FOR UPDATE',[id,userId]); job=result.rows[0];
     if(!job){await client.query('COMMIT');return undefined;}
     if(['completed','partial','failed'].includes(job.status)){await client.query('COMMIT');return publicJob(job);}
-    if(job.lease_expires_at&&new Date(job.lease_expires_at).getTime()>Date.now()){await client.query('COMMIT');return publicJob(job);}
-    await client.query("UPDATE website_scrape_jobs SET status='running',worker_id=$2,lease_expires_at=NOW()+INTERVAL '90 seconds',started_at=COALESCE(started_at,NOW()),updated_at=NOW() WHERE id=$1",[id,API_BATCH_ID]);
+    const leaseActive = job.lease_expires_at && new Date(job.lease_expires_at).getTime() > Date.now();
+    const progressStale = !job.updated_at || Date.now() - new Date(job.updated_at).getTime() > 60_000;
+    if(leaseActive && !progressStale){await client.query('COMMIT');return publicJob(job);}
+    // Recover abandoned API batches after a minute without persisted progress.
+    // Each page retrieval also has a hard deadline, so a healthy batch finishes
+    // well before this recovery threshold.
+    await client.query("UPDATE website_scrape_jobs SET status='running',worker_id=$2,lease_expires_at=NOW()+INTERVAL '45 seconds',started_at=COALESCE(started_at,NOW()),updated_at=NOW() WHERE id=$1",[id,API_BATCH_ID]);
     await client.query('COMMIT');
   } catch(error){await client.query('ROLLBACK').catch(()=>undefined);throw error;} finally{client.release();}
   try {
     const cfg=webRetrievalConfig(process.env);
     if(!cfg.enabled||!cfg.configured)throw Object.assign(new Error('Website retrieval is disabled or misconfigured.'),{code:'CAPABILITY_UNAVAILABLE'});
-    const workflow=await runScrape({urls:Array.isArray(job.seed_urls)?job.seed_urls:[],retrievalConfiguration:cfg,background:false,batchPageLimit:16,resumeState:job.progress?.workflowState,onProgress:async snapshot=>{
+    const workflow=await runScrape({urls:Array.isArray(job.seed_urls)?job.seed_urls:[],retrievalConfiguration:cfg,background:false,batchPageLimit:4,resumeState:job.progress?.workflowState,onProgress:async snapshot=>{
       await getPool().query("UPDATE website_scrape_jobs SET pages_visited=$2,pages_discovered=$3,products_found=$4,failed_pages=$5,progress=$6::jsonb,lease_expires_at=NOW()+INTERVAL '90 seconds',updated_at=NOW() WHERE id=$1 AND worker_id=$7",
-      [id,snapshot.crawl?.pagesVisited||snapshot.pages.length,snapshot.crawl?.pagesDiscovered||0,snapshot.crawl?.productRecordsFound||0,snapshot.failures.length,
-      JSON.stringify({phase:snapshot.crawl?.phase,batchSize:snapshot.crawl?.batchSize||0,pagesVisited:snapshot.crawl?.pagesVisited||0,productRecordsFound:snapshot.crawl?.productRecordsFound||0,queuedButNotVisited:snapshot.crawl?.queuedButNotVisited||0,discoveryPagesVisited:snapshot.crawl?.discoveryPagesVisited||0,productPagesVisited:snapshot.crawl?.productPagesVisited||0,productUrlsDiscovered:snapshot.crawl?.productUrlsDiscovered||0,productUrlsRemaining:snapshot.crawl?.productUrlsRemaining||0,discoveryPagesRemaining:snapshot.crawl?.discoveryPagesRemaining||0,sitemapProductsFound:snapshot.crawl?.sitemapProductsFound||0,commercePlatforms:snapshot.crawl?.commercePlatforms||[],workflowState:snapshot.crawl?.resumeState}),API_BATCH_ID]);
+      [id,snapshot.crawl?.pagesVisited||snapshot.pages.length,snapshot.crawl?.pagesDiscovered||0,Math.max(0,catalogueRows({pages:snapshot.pages}).length-1),snapshot.failures.length,
+      JSON.stringify({phase:snapshot.crawl?.phase,batchSize:snapshot.crawl?.batchSize||0,pagesVisited:snapshot.crawl?.pagesVisited||0,productRecordsFound:snapshot.crawl?.productRecordsFound||0,uniqueProducts:Math.max(0,catalogueRows({pages:snapshot.pages}).length-1),queuedButNotVisited:snapshot.crawl?.queuedButNotVisited||0,discoveryPagesVisited:snapshot.crawl?.discoveryPagesVisited||0,productPagesVisited:snapshot.crawl?.productPagesVisited||0,productUrlsDiscovered:snapshot.crawl?.productUrlsDiscovered||0,productUrlsRemaining:snapshot.crawl?.productUrlsRemaining||0,discoveryPagesRemaining:snapshot.crawl?.discoveryPagesRemaining||0,sitemapProductsFound:snapshot.crawl?.sitemapProductsFound||0,commercePlatforms:snapshot.crawl?.commercePlatforms||[],workflowState:snapshot.crawl?.resumeState}),API_BATCH_ID]);
     }});
     if(workflow.crawl?.hasMore){await getPool().query("UPDATE website_scrape_jobs SET status='running',worker_id=NULL,lease_expires_at=NULL,updated_at=NOW() WHERE id=$1 AND worker_id=$2",[id,API_BATCH_ID]);return getScrapeJob(userId,id);}
     const rows=catalogueRows(workflow),count=Math.max(0,rows.length-1);
@@ -113,7 +118,11 @@ function catalogueRows(workflow) {
     // plugins emit a separate structured Product node per variation/SKU;
     // consolidate those nodes under the requested parent URL.
     const parentProductUrl = page.pageType === 'product' ? canonical(page.requestedUrl || page.url || url) : undefined;
-    const key = parentProductUrl ? `url:${parentProductUrl.toLowerCase()}` : sku ? `sku:${normalize(sku)}` : url ? `url:${url.toLowerCase()}` : name ? `name:${normalize(name)}|brand:${normalize(brand)}` : `unidentified:${randomUUID()}`;
+    // Canonical product URL is the primary identity across listing and detail
+    // pages. SKU is only a fallback; otherwise the same product appears twice
+    // when the listing and detail page expose different SKU metadata.
+    const productIdentityUrl = parentProductUrl || url;
+    const key = productIdentityUrl ? `url:${productIdentityUrl.toLowerCase()}` : sku ? `sku:${normalize(sku)}` : name ? `name:${normalize(name)}|brand:${normalize(brand)}` : `unidentified:${randomUUID()}`;
     const existing = byIdentity.get(key) || { name: '', description: '', price: '', currency: '', availability: '', sku: '', brand: '', rating: '', reviewCount: '', url: '', imageUrls: [] };
     for (const field of ['name','description','price','currency','availability','sku','brand','rating','reviewCount']) {
       const value = clean(item[field] ?? (field === 'name' ? name : undefined));
