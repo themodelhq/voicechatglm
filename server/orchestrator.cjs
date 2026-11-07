@@ -39,20 +39,29 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   const isAysSounSeed = (resumeState?.seeds || urls).some(value => { try { return new URL(value).hostname.toLowerCase() === 'ayssoun.com'; } catch { return false; } });
   // AysSoun's shop shows 12 of 63 items per page, so allow enough shop
   // pagination pages to reach the complete catalogue in API-batched mode.
-  const maxDiscoveryPages = isAysSounSeed ? 10 : (background ? Math.min(20, Math.max(1, Math.ceil(maxPages * 0.2))) : 2);
+  const maxDiscoveryPages = isAysSounSeed ? 12 : (background ? Math.min(20, Math.max(1, Math.ceil(maxPages * 0.2))) : 2);
   // Version the persisted crawl state. Older AysSoun jobs contain hundreds of
   // product URLs discovered from related-product widgets; discard that stale
   // queue once and rebuild from the original shop URL.
   const requestedSeeds = (resumeState?.seeds || urls).map(value => canonicalPageUrl(value)).filter(Boolean);
   const isAysSounTarget = requestedSeeds.some(value => { try { return new URL(value).hostname.toLowerCase() === 'ayssoun.com'; } catch { return false; } });
   const state = isAysSounTarget && Number(resumeState?.crawlVersion || 0) < 2 ? null : resumeState;
-  const seeds = (state?.seeds || urls).map(value => {
-    try {
-      const url = new URL(value);
-      if (url.hostname.toLowerCase() === 'ayssoun.com' && (url.pathname === '/' || url.pathname === '')) url.pathname = '/shop/';
-      return canonicalPageUrl(url.toString());
-    } catch { return canonicalPageUrl(value); }
-  }).filter(Boolean);
+  const seeds = (isAysSounTarget && !state)
+    ? [
+        'https://ayssoun.com/product-category/femme/',
+        'https://ayssoun.com/product-category/femme/page/2/',
+        'https://ayssoun.com/product-category/femme/page/3/',
+        'https://ayssoun.com/product-category/femme/page/4/',
+        'https://ayssoun.com/product-category/femme/page/5/',
+        'https://ayssoun.com/product-category/enfants/'
+      ]
+    : (state?.seeds || urls).map(value => {
+        try {
+          const url = new URL(value);
+          if (url.hostname.toLowerCase() === 'ayssoun.com' && (url.pathname === '/' || url.pathname === '')) url.pathname = '/product-category/femme/';
+          return canonicalPageUrl(url.toString());
+        } catch { return canonicalPageUrl(value); }
+      }).filter(Boolean);
   const hosts = new Set(state?.hosts || seeds.map(value => new URL(value).hostname.toLowerCase()));
   const productQueue = [...(state?.productQueue || [])], productQueued = new Set(state?.productQueued || productQueue);
   const discoveryQueue = [...(state?.discoveryQueue || seeds)], discoveryQueued = new Set(state?.discoveryQueued || discoveryQueue);
@@ -120,7 +129,11 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
       }
       // Product objects embedded in category JSON-LD can reveal exact product URLs,
       // even where the store uses non-standard URL paths.
-      for (const item of page.products || []) if (item.url && item.url !== requestedUrl) enqueueProduct(item.url);
+      // Product structured data can expose related/recommended products on detail
+      // pages. Only catalogue/listing pages are allowed to expand the product queue.
+      if (phase === 'discovery') {
+        for (const item of page.products || []) if (item.url && canonicalProductUrl(item.url) !== canonicalProductUrl(requestedUrl)) enqueueProduct(item.url);
+      }
       for (const link of page.links || []) {
         const canonical = canonicalPageUrl(link.url);
         if (!canonical || !hosts.has(new URL(canonical).hostname.toLowerCase())) continue;
