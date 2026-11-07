@@ -40,7 +40,7 @@ async function retrieveWithRetry(url, configuration, options = {}) {
       const response = await retrieveWithRedirects(url, configuration, options);
       if (![408, 429, 500, 502, 503, 504].includes(response.status) || attempt >= attempts) return response;
       const serverDelay = retryAfterMs(response.headers);
-      const delay = Math.min(maximum, serverDelay ?? Math.min(maximum, base * (2 ** attempt)));
+      const delay = serverDelay ?? Math.min(maximum, base * (2 ** attempt));
       await sleep(delay, options.signal);
     } catch (error) {
       if (options.signal?.aborted || error?.code === 'CANCELLED' || attempt >= attempts || !['TIMEOUT','RETRIEVAL_FAILED','ECONNRESET','ETIMEDOUT','EAI_AGAIN','ECONNREFUSED','EHOSTUNREACH'].includes(error?.code)) throw error;
