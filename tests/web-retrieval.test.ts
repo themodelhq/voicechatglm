@@ -2,12 +2,20 @@ import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 const require = createRequire(import.meta.url);
-const { webRetrievalConfig, validateTargetUrl, blockedAddress, ipv6Blocked, resolvePublicHost, retrieveWithRedirects, retrieveWithRetry, retryAfterMs, robotsDisallows, extractHtml } = require('../server/web-retrieval.cjs') as typeof import('../server/web-retrieval.cjs');
+const { webRetrievalConfig, validateTargetUrl, blockedAddress, ipv6Blocked, resolvePublicHost, retrieveWithRedirects, retrieveWithRetry, retryAfterMs, retrievePage, robotsDisallows, extractHtml } = require('../server/web-retrieval.cjs') as typeof import('../server/web-retrieval.cjs');
 const configuration = webRetrievalConfig({ WEB_SCRAPING_ENABLED: 'true', WEB_SCRAPING_ROBOTS_POLICY: 'ignore', WEB_SCRAPING_TIMEOUT_MS: '1000' } as NodeJS.ProcessEnv);
 function requestFor(status: number, headers: Record<string, string>, body = '') {
   return (_options: any, callback: (response: any) => void) => { const request = new EventEmitter() as any; request.destroy = (error?: Error) => { if (error) request.emit('error', error); }; request.end = () => { const response = new EventEmitter() as any; response.statusCode = status; response.headers = headers; callback(response); queueMicrotask(() => { if (body) response.emit('data', Buffer.from(body)); response.emit('end'); }); }; return request; };
 }
 describe('SSRF-protected conventional HTML retrieval', () => {
+  it('identifies Cloudflare human-verification pages even when returned with HTTP 200', async () => {
+    await expect(retrievePage({
+      url: 'https://shop.example/',
+      configuration,
+      lookup: async () => [{ address: '93.184.216.34', family: 4 }] as any,
+      request: requestFor(200, { 'content-type': 'text/html', 'cf-mitigated': 'challenge' }, '<html><title>Just a moment...</title><body>Verify you are human</body></html>')
+    })).rejects.toMatchObject({ code: 'ACCESS_CHALLENGE' });
+  });
   it('honours Retry-After and retries temporary rate limits without changing normal retrieval', async () => {
     const delays: number[] = [];
     let calls = 0;
