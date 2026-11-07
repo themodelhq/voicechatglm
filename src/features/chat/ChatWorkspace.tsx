@@ -48,9 +48,10 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
   useEffect(() => { box.current?.focus(); }, [conversationId, agentId]);
   useEffect(() => {
     if (!hasPendingJobs) return;
-    let active = true, checking = false;
-    const timer = window.setInterval(async () => {
-      if (!active || checking) return; checking = true;
+    let active = true, checking = false, timer: number | undefined;
+    const poll = async () => {
+      if (!active || checking) return;
+      checking = true;
       try {
         for (const message of pendingJobsRef.current) {
           const job = await advanceScrapeJob(message.scrapeJobId!);
@@ -98,9 +99,15 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
         const detail = (error instanceof Error ? error.message : 'The API could not advance the catalogue batch.').slice(0, 240);
         updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => !pendingJobsRef.current.some(pending => pending.id === entry.id) ? entry : { ...entry, scrapeProgress: { ...(entry.scrapeProgress || { status: 'running' as const }), lastError: detail } }) }));
       }
-      finally { checking = false; }
-    }, 3000);
-    return () => { active = false; window.clearInterval(timer); };
+      finally {
+        checking = false;
+        // Schedule the next API batch only after the previous request finishes.
+        // Start immediately on mount so a resumed job never waits for an interval tick.
+        if (active) timer = window.setTimeout(() => { void poll(); }, 1500);
+      }
+    };
+    void poll();
+    return () => { active = false; if (timer !== undefined) window.clearTimeout(timer); };
   }, [conversationId, hasPendingJobs, updateConversations]);
 
   useEffect(() => { let active = true; if (!conversationId) { setShareLinks([]); return; } void listConversationShares(conversationId).then(links => { if (active) setShareLinks(links); }).catch(() => { if (active) setShareLinks([]); }); return () => { active = false; }; }, [conversationId]);
