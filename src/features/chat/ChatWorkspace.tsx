@@ -37,18 +37,22 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
   const mounted = useRef(true);
   const box = useRef<HTMLTextAreaElement>(null);
   const systemPrompt = useMemo(() => agent ? buildSystemPrompt(agent) : undefined, [agent]);
+  // Keep the active crawl list current without restarting its polling timer on every progress update.
+  const pendingJobs = (conversation?.messages || []).filter(message => message.scrapeJobId && !message.artifacts?.length && message.status !== 'error');
+  const pendingJobsRef = useRef(pendingJobs);
+  pendingJobsRef.current = pendingJobs;
+  const hasPendingJobs = pendingJobs.length > 0;
 
   useEffect(() => { setDraft(state.drafts[draftKey] ?? ''); setAttachments([]); setComposerError(undefined); }, [draftKey]);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; uploads.current.forEach(controller => controller.abort()); requests.current.forEach(controller => controller.abort()); uploads.current.clear(); requests.current.clear(); }; }, []);
   useEffect(() => { box.current?.focus(); }, [conversationId, agentId]);
   useEffect(() => {
-    const pendingJobs = (conversation?.messages || []).filter(message => message.scrapeJobId && !message.artifacts?.length && message.status !== 'error');
-    if (!pendingJobs.length) return;
+    if (!hasPendingJobs) return;
     let active = true, checking = false;
     const timer = window.setInterval(async () => {
       if (!active || checking) return; checking = true;
       try {
-        for (const message of pendingJobs) {
+        for (const message of pendingJobsRef.current) {
           const job = await advanceScrapeJob(message.scrapeJobId!);
           if (!active) return;
           const progress = {
@@ -92,12 +96,12 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
         // Never hide API advancement failures: otherwise the progress card can
         // appear frozen indefinitely while every poll is failing.
         const detail = (error instanceof Error ? error.message : 'The API could not advance the catalogue batch.').slice(0, 240);
-        updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => !pendingJobs.some(pending => pending.id === entry.id) ? entry : { ...entry, scrapeProgress: { ...(entry.scrapeProgress || { status: 'running' as const }), lastError: detail } }) }));
+        updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => !pendingJobsRef.current.some(pending => pending.id === entry.id) ? entry : { ...entry, scrapeProgress: { ...(entry.scrapeProgress || { status: 'running' as const }), lastError: detail } }) }));
       }
       finally { checking = false; }
     }, 3000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [conversationId, conversation?.messages, updateConversations]);
+  }, [conversationId, hasPendingJobs, updateConversations]);
 
   useEffect(() => { let active = true; if (!conversationId) { setShareLinks([]); return; } void listConversationShares(conversationId).then(links => { if (active) setShareLinks(links); }).catch(() => { if (active) setShareLinks([]); }); return () => { active = false; }; }, [conversationId]);
   const changeDraft = (value: string) => { setDraft(value); saveDraft(draftKey, value); };
