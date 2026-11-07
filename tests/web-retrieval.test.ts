@@ -2,12 +2,48 @@ import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 const require = createRequire(import.meta.url);
-const { webRetrievalConfig, validateTargetUrl, blockedAddress, ipv6Blocked, resolvePublicHost, retrieveWithRedirects, robotsDisallows, extractHtml } = require('../server/web-retrieval.cjs') as typeof import('../server/web-retrieval.cjs');
+const { webRetrievalConfig, validateTargetUrl, blockedAddress, ipv6Blocked, resolvePublicHost, retrieveWithRedirects, retrieveWithRetry, retryAfterMs, robotsDisallows, extractHtml } = require('../server/web-retrieval.cjs') as typeof import('../server/web-retrieval.cjs');
 const configuration = webRetrievalConfig({ WEB_SCRAPING_ENABLED: 'true', WEB_SCRAPING_ROBOTS_POLICY: 'ignore', WEB_SCRAPING_TIMEOUT_MS: '1000' } as NodeJS.ProcessEnv);
 function requestFor(status: number, headers: Record<string, string>, body = '') {
   return (_options: any, callback: (response: any) => void) => { const request = new EventEmitter() as any; request.destroy = (error?: Error) => { if (error) request.emit('error', error); }; request.end = () => { const response = new EventEmitter() as any; response.statusCode = status; response.headers = headers; callback(response); queueMicrotask(() => { if (body) response.emit('data', Buffer.from(body)); response.emit('end'); }); }; return request; };
 }
 describe('SSRF-protected conventional HTML retrieval', () => {
+  it('honours Retry-After and retries temporary rate limits without changing normal retrieval', async () => {
+    const delays: number[] = [];
+    let calls = 0;
+    const request = (_options: any, callback: (response: any) => void) => {
+      calls += 1;
+      const status = calls === 1 ? 429 : 200;
+      const headers = calls === 1 ? { 'retry-after': '2', 'content-type': 'text/html' } : { 'content-type': 'text/html' };
+      return requestFor(status, headers, '<html><body><main><h1>OK</h1></main></body></html>')(_options, callback);
+    };
+    const result = await retrieveWithRetry('https://shop.example/products', { ...configuration, retryAttempts: 2, retryBaseDelayMs: 500, retryMaxDelayMs: 5000 }, {
+      lookup: async () => [{ address: '93.184.216.34', family: 4 }] as any,
+      request,
+      sleep: async (ms: number) => { delays.push(ms); }
+    });
+    expect(result.status).toBe(200);
+    expect(calls).toBe(2);
+    expect(delays).toEqual([2000]);
+  });
+  it('uses bounded exponential backoff when Retry-After is absent', async () => {
+    const delays: number[] = [];
+    expect(retryAfterMs({ 'retry-after': '3' })).toBe(3000);
+    expect(retryAfterMs({ 'retry-after': 'not-a-date' })).toBeUndefined();
+    let calls = 0;
+    const request = (_options: any, callback: (response: any) => void) => {
+      calls += 1;
+      return requestFor(calls < 3 ? 503 : 200, { 'content-type': 'text/html' }, '<html></html>')(_options, callback);
+    };
+    const result = await retrieveWithRetry('https://shop.example/', { ...configuration, retryAttempts: 2, retryBaseDelayMs: 500, retryMaxDelayMs: 2000 }, {
+      lookup: async () => [{ address: '93.184.216.34', family: 4 }] as any,
+      request,
+      sleep: async (ms: number) => { delays.push(ms); }
+    });
+    expect(result.status).toBe(200);
+    expect(delays).toEqual([500, 1000]);
+  });
+
   it('blocks loopback, private, metadata-style and nonstandard targets before connection', async () => {
     for (const value of ['http://127.0.0.1/', 'http://169.254.169.254/latest/meta-data/', 'http://[::1]/', 'ftp://public.example/', 'http://public.example:8080/']) expect(validateTargetUrl(value)).toHaveProperty('error');
     expect(blockedAddress('10.1.2.3')).toBe(true); expect(blockedAddress('8.8.8.8')).toBe(false);
