@@ -57,7 +57,7 @@ function extractHtml(html, sourceUrl, configuration) { const document = parseDoc
   // On a product detail URL, JSON-LD can also contain related/recommended
   // products. Keep only the Product whose canonical URL is the page requested.
   if (isProductDetailUrl(sourceUrl)) {
-    const canonical = value => { try { const url = new URL(value, sourceUrl); url.hash = ''; url.search = ''; return url.toString().replace(/\\/$/, ''); } catch { return String(value || '').replace(/\\/$/, ''); } };
+    const canonical = value => { try { const url = new URL(value, sourceUrl); url.hash = ''; url.search = ''; return url.toString().replace(/\/$/, ''); } catch { return String(value || '').replace(/\/$/, ''); } };
     const currentProductUrl = canonical(sourceUrl);
     const primary = products.filter(item => canonical(item.url) === currentProductUrl);
     products.splice(0, products.length, ...primary.slice(0, 1));
