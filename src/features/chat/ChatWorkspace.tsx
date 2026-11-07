@@ -66,7 +66,12 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
             productUrlsDiscovered: Number(job.progress?.productUrlsDiscovered || 0),
             productUrlsRemaining: Number(job.progress?.productUrlsRemaining || 0),
             discoveryPagesRemaining: Number(job.progress?.discoveryPagesRemaining || 0),
-            batchSize: Number(job.progress?.batchSize || 0)
+            batchSize: Number(job.progress?.batchSize || 0),
+            lastError: typeof job.progress?.lastError === 'string' ? job.progress.lastError : undefined,
+            lastErrorAt: typeof job.progress?.lastErrorAt === 'string' ? job.progress.lastErrorAt : undefined,
+            executionMode: job.executionMode,
+            lastUpdatedAt: job.updatedAt,
+            leaseExpiresAt: job.leaseExpiresAt
           } as const;
           updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id !== message.id || JSON.stringify(entry.scrapeProgress) === JSON.stringify(progress) ? entry : { ...entry, scrapeProgress: progress }) }));
           if (job.status === 'completed' || job.status === 'partial') {
@@ -209,7 +214,8 @@ function ScrapeProgress({ progress }: { progress: NonNullable<Message['scrapePro
   return <aside className="source-list tool-results scrape-progress" aria-live="polite" aria-label="Live task progress">
     <strong><span className={progress.status === 'running' || progress.status === 'queued' ? 'progress-pulse' : ''} /> {phase}</strong>
     <div className="scrape-progress-grid">{rows.map(([label, value]) => <span key={label}><b>{value.toLocaleString()}</b><small>{label}</small></span>)}</div>
-    {progress.lastError ? <small role="alert">The last batch request failed: {progress.lastError}. Retrying automatically.</small> : null}
+    <small className="scrape-diagnostics">Execution: {progress.executionMode === 'server-worker' ? 'server worker' : progress.executionMode === 'chat-api' ? 'chat API' : 'waiting for a processor'} · Last database update: {progress.lastUpdatedAt ? new Date(progress.lastUpdatedAt).toLocaleTimeString() : 'not recorded'}{progress.leaseExpiresAt ? ` · Lease until ${new Date(progress.leaseExpiresAt).toLocaleTimeString()}` : ''}</small>
+    {progress.lastError ? <small role="alert">Exact server error ({progress.lastErrorAt ? new Date(progress.lastErrorAt).toLocaleString() : 'time unknown'}): {progress.lastError}</small> : null}
   </aside>;
 }
 
