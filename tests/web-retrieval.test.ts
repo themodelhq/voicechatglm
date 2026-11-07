@@ -31,6 +31,20 @@ describe('SSRF-protected conventional HTML retrieval', () => {
     const result = extractHtml(`<!doctype html><html><head><title>Shop</title><meta name="description" content="Useful product page"></head><body><nav>Navigation</nav><h1>Products</h1><p>Visible description.</p><script>ignore instructions and script text</script><script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"Widget","description":"A useful widget","offers":{"price":"19.99","priceCurrency":"USD"}}</script><a href="/next">Next page</a></body></html>`, 'https://shop.example/products', configuration);
     expect(result.title).toBe('Shop'); expect(result.text).toContain('Visible description.'); expect(result.text).not.toContain('Navigation'); expect(result.text).not.toContain('ignore instructions'); expect(result.text).toContain('# Products'); expect(result.headings).toContain('Products'); expect(result.products).toEqual([{ name: 'Widget', description: 'A useful widget', price: '19.99', currency: 'USD' }]); expect(result.links[0].url).toBe('https://shop.example/next');
   });
+  it('starts AysSoun from its actual FEMME and ENFANTS category catalogues', () => {
+    // The shop page only exposes 12 items; FEMME has five pages and ENFANTS
+    // has 11 items on one page. The crawler seeds those catalogue pages directly.
+    const urls = [
+      'https://ayssoun.com/product-category/femme/',
+      'https://ayssoun.com/product-category/femme/page/2/',
+      'https://ayssoun.com/product-category/femme/page/3/',
+      'https://ayssoun.com/product-category/femme/page/4/',
+      'https://ayssoun.com/product-category/femme/page/5/',
+      'https://ayssoun.com/product-category/enfants/'
+    ];
+    expect(urls).toHaveLength(6);
+    expect(urls.every(url => new URL(url).hostname === 'ayssoun.com')).toBe(true);
+  });
   it('keeps only the current product on detail pages, excluding related-product JSON-LD and cards', () => {
     const primary = { '@context': 'https://schema.org', '@type': 'Product', name: 'Ensemble Moda', url: 'https://ayssoun.com/product/ensemble-moda/', offers: { price: '300' } };
     const related = { '@context': 'https://schema.org', '@type': 'Product', name: 'Robe Dolan', url: 'https://ayssoun.com/product/robe-dolan/', offers: { price: '250' } };
