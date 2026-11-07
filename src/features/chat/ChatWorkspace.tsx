@@ -86,11 +86,11 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
               active = false; if (timer !== undefined) window.clearTimeout(timer); break;
             }
             updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id === message.id ? { ...entry, status: 'error', content: 'The crawl stopped, but the server did not return a downloadable workbook. The job record is retained for diagnosis; do not restart the crawl until we confirm whether its saved results can be recovered.', scrapeProgress: progress, toolEvents: entry.toolEvents?.map(event => ({ ...event, status: 'failed', detail: 'The crawl stopped without producing a downloadable workbook.' })) } : entry) }));
-            window.clearInterval(timer); break;
+            active = false; if (timer !== undefined) window.clearTimeout(timer); break;
           }
           if (job.status === 'failed') {
             updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id === message.id ? { ...entry, status: 'error', content: 'The background website crawl failed. Please retry the request.', scrapeProgress: progress } : entry) }));
-            window.clearInterval(timer); break;
+            active = false; if (timer !== undefined) window.clearTimeout(timer); break;
           }
         }
       } catch (error) {
