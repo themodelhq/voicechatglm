@@ -12,7 +12,7 @@ function publicJob(row) {
   if (!row) return undefined;
   const progress = { ...(row.progress || {}) };
   delete progress.workflowState;
-  return { id: row.id, status: row.status, pagesVisited: Number(row.pages_visited || 0), pagesDiscovered: Number(row.pages_discovered || 0), productsFound: Number(row.products_found || 0), failedPages: Number(row.failed_pages || 0), artifactId: row.artifact_id || undefined, progress, errorCode: row.error_code || undefined, createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at || undefined };
+  return { id: row.id, status: row.status, pagesVisited: Number(row.pages_visited || 0), pagesDiscovered: Number(row.pages_discovered || 0), productsFound: Number(row.products_found || 0), failedPages: Number(row.failed_pages || 0), artifactId: row.artifact_id || undefined, progress, errorCode: row.error_code || undefined, executionMode: row.worker_id ? (String(row.worker_id).startsWith('api-batch-') ? 'chat-api' : 'server-worker') : 'idle', leaseExpiresAt: row.lease_expires_at || undefined, createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at || undefined };
 }
 async function enqueueScrapeJob({ userId, conversationId, assistantMessageId, urls, message }) {
   const id = randomUUID();
@@ -73,7 +73,8 @@ async function advanceScrapeJob(userId, id) {
     return getScrapeJob(userId,id);
   } catch(error){
     const code=String(error?.code||'SCRAPE_FAILED').slice(0,80);
-    await getPool().query("UPDATE website_scrape_jobs SET status='failed',error_code=$2,completed_at=NOW(),lease_expires_at=NULL,worker_id=NULL,updated_at=NOW() WHERE id=$1 AND worker_id=$3",[id,code,API_BATCH_ID]);
+    const detail=String(error?.message||'The crawl batch failed.').replace(/[\\r\\n\\t]+/g,' ').slice(0,240);
+    await getPool().query("UPDATE website_scrape_jobs SET status='failed',error_code=$2,progress=COALESCE(progress,'{}'::jsonb)||$3::jsonb,completed_at=NOW(),lease_expires_at=NULL,worker_id=NULL,updated_at=NOW() WHERE id=$1 AND worker_id=$4",[id,code,JSON.stringify({lastError:detail,lastErrorAt:new Date().toISOString(),phase:'failed'}),API_BATCH_ID]);
     throw error;
   }
 }
@@ -162,8 +163,9 @@ async function processJob(job) {
 }
 async function failJob(job,error) {
   const code=String(error?.code||'SCRAPE_FAILED').slice(0,80);
-  await getPool().query(`UPDATE website_scrape_jobs SET status='failed',error_code=$2,completed_at=NOW(),
-    lease_expires_at=NULL,updated_at=NOW() WHERE id=$1 AND worker_id=$3`,[job.id,code,WORKER_ID]);
+  const detail=String(error?.message||'The background crawl failed.').replace(/[\\r\\n\\t]+/g,' ').slice(0,240);
+  await getPool().query(`UPDATE website_scrape_jobs SET status='failed',error_code=$2,progress=COALESCE(progress,'{}'::jsonb)||$4::jsonb,completed_at=NOW(),
+    lease_expires_at=NULL,updated_at=NOW() WHERE id=$1 AND worker_id=$3`,[job.id,code,WORKER_ID,JSON.stringify({lastError:detail,lastErrorAt:new Date().toISOString(),phase:'failed'})]);
   if(job.assistant_message_id) {
     const repository=require('./auth.cjs').repositoryFor(process.env);
     await repository.updateConversationMessage({userId:job.user_id,conversationId:job.conversation_id,id:job.assistant_message_id,content:'The background website crawl could not be completed. You can retry the request. No workbook was created.',status:'error',metadata:{route:'website_scraping',scrapeJobId:job.id,errorCode:code}}).catch(()=>undefined);
