@@ -83,7 +83,12 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
             window.clearInterval(timer); break;
           }
         }
-      } catch { /* Polling is best-effort; the durable job continues on the server. */ }
+      } catch (error) {
+        // Never hide API advancement failures: otherwise the progress card can
+        // appear frozen indefinitely while every poll is failing.
+        const detail = (error instanceof Error ? error.message : 'The API could not advance the catalogue batch.').slice(0, 240);
+        updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id !== pendingJobs[0]?.id ? entry : { ...entry, scrapeProgress: { ...(entry.scrapeProgress || { status: 'running' as const }), lastError: detail } }) }));
+      }
       finally { checking = false; }
     }, 3000);
     return () => { active = false; window.clearInterval(timer); };
@@ -204,6 +209,7 @@ function ScrapeProgress({ progress }: { progress: NonNullable<Message['scrapePro
   return <aside className="source-list tool-results scrape-progress" aria-live="polite" aria-label="Live task progress">
     <strong><span className={progress.status === 'running' || progress.status === 'queued' ? 'progress-pulse' : ''} /> {phase}</strong>
     <div className="scrape-progress-grid">{rows.map(([label, value]) => <span key={label}><b>{value.toLocaleString()}</b><small>{label}</small></span>)}</div>
+    {progress.lastError ? <small role="alert">The last batch request failed: {progress.lastError}. Retrying automatically.</small> : null}
   </aside>;
 }
 
