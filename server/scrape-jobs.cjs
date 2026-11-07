@@ -85,7 +85,8 @@ async function claimJob() {
   try {
     await client.query('BEGIN');
     const result = await client.query(`SELECT * FROM website_scrape_jobs
-      WHERE (status='queued' OR (status='running' AND lease_expires_at < NOW()))
+      WHERE status='queued'
+         OR (status='running' AND worker_id IS NULL AND (lease_expires_at IS NULL OR lease_expires_at < NOW()))
       ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED`);
     const row = result.rows[0];
     if (!row) { await client.query('COMMIT'); return undefined; }
@@ -103,7 +104,7 @@ async function updateProgress(id, workflow) {
     products_found=$4,failed_pages=$5,progress=$6::jsonb,lease_expires_at=NOW()+($7 * INTERVAL '1 millisecond'),
     updated_at=NOW() WHERE id=$1 AND status='running' AND worker_id=$8`,
     [id,workflow.pages.length,workflow.crawl?.pagesDiscovered || workflow.pages.length,products,workflow.failures.length,
-     JSON.stringify({phase:workflow.crawl?.phase||'retrieving_pages',batchSize:workflow.crawl?.batchSize||0,pagesVisited:workflow.crawl?.pagesVisited||workflow.pages.length,productRecordsFound:workflow.crawl?.productRecordsFound||products,queuedButNotVisited:workflow.crawl?.queuedButNotVisited||0,discoveryPagesVisited:workflow.crawl?.discoveryPagesVisited||0,productPagesVisited:workflow.crawl?.productPagesVisited||0,productUrlsDiscovered:workflow.crawl?.productUrlsDiscovered||0,productUrlsRemaining:workflow.crawl?.productUrlsRemaining||0,discoveryPagesRemaining:workflow.crawl?.discoveryPagesRemaining||0,detectedPlatforms:workflow.crawl?.detectedPlatforms||[],sitemapsVisited:workflow.crawl?.sitemapsVisited||0,sitemapLimitReached:Boolean(workflow.crawl?.sitemapLimitReached),backgroundMode:Boolean(workflow.crawl?.backgroundMode),configuredPageLimit:workflow.crawl?.configuredPageLimit||null,effectivePageLimit:workflow.crawl?.effectivePageLimit||null,discoveryPageLimit:workflow.crawl?.discoveryPageLimit||null,workerId:WORKER_ID}),LEASE_MS,WORKER_ID]);
+     JSON.stringify({phase:workflow.crawl?.phase||'retrieving_pages',batchSize:workflow.crawl?.batchSize||0,pagesVisited:workflow.crawl?.pagesVisited||workflow.pages.length,productRecordsFound:workflow.crawl?.productRecordsFound||products,uniqueProducts:Math.max(0,catalogueRows(workflow).length-1),queuedButNotVisited:workflow.crawl?.queuedButNotVisited||0,discoveryPagesVisited:workflow.crawl?.discoveryPagesVisited||0,productPagesVisited:workflow.crawl?.productPagesVisited||0,productUrlsDiscovered:workflow.crawl?.productUrlsDiscovered||0,productUrlsRemaining:workflow.crawl?.productUrlsRemaining||0,discoveryPagesRemaining:workflow.crawl?.discoveryPagesRemaining||0,commercePlatforms:workflow.crawl?.commercePlatforms||[],sitemapProductsFound:workflow.crawl?.sitemapProductsFound||0,backgroundMode:false,workerId:WORKER_ID,workflowState:workflow.crawl?.resumeState}),LEASE_MS,WORKER_ID]);
 }
 function catalogueRows(workflow) {
   const byIdentity = new Map();
@@ -142,7 +143,22 @@ function catalogueRows(workflow) {
 async function processJob(job) {
   const env=process.env, cfg=webRetrievalConfig(env);
   if(!cfg.enabled||!cfg.configured) throw Object.assign(new Error('Website retrieval is disabled or misconfigured.'),{code:'CAPABILITY_UNAVAILABLE'});
-  const workflow=await runScrape({urls:Array.isArray(job.seed_urls)?job.seed_urls:[],retrievalConfiguration:cfg,background:true,onProgress:snapshot=>updateProgress(job.id,snapshot)});
+  // Use the same proven two-page extraction cycle as the successful small export.
+  // The in-process worker repeats and checkpoints each batch until the catalogue is complete.
+  let workflow;
+  let resumeState=job.progress?.workflowState;
+  do {
+    workflow=await runScrape({
+      urls:Array.isArray(job.seed_urls)?job.seed_urls:[],
+      retrievalConfiguration:cfg,
+      background:false,
+      batchPageLimit:2,
+      resumeState,
+      onProgress:snapshot=>updateProgress(job.id,snapshot)
+    });
+    resumeState=workflow.crawl?.resumeState;
+    if(!workflow.crawl?.hasMore) break;
+  } while(true);
   await updateProgress(job.id,{...workflow,crawl:{...workflow.crawl,phase:'preparing_workbook'}});
   const rows=catalogueRows(workflow), count=Math.max(0,rows.length-1);
   if(!count) throw Object.assign(new Error('No structured product records were extracted from the retrieved pages.'),{code:'NO_PRODUCTS'});
