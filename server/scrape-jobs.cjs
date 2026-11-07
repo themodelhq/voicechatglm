@@ -109,7 +109,11 @@ function catalogueRows(workflow) {
     const sku = clean(item.sku);
     const name = clean(item.name || (page.pageType === 'product' ? page.title : undefined));
     const brand = clean(item.brand);
-    const key = sku ? `sku:${normalize(sku)}` : url ? `url:${url.toLowerCase()}` : name ? `name:${normalize(name)}|brand:${normalize(brand)}` : `unidentified:${randomUUID()}`;
+    // A product detail page is the parent catalogue item. Some commerce
+    // plugins emit a separate structured Product node per variation/SKU;
+    // consolidate those nodes under the requested parent URL.
+    const parentProductUrl = page.pageType === 'product' ? canonical(page.requestedUrl || page.url || url) : undefined;
+    const key = parentProductUrl ? `url:${parentProductUrl.toLowerCase()}` : sku ? `sku:${normalize(sku)}` : url ? `url:${url.toLowerCase()}` : name ? `name:${normalize(name)}|brand:${normalize(brand)}` : `unidentified:${randomUUID()}`;
     const existing = byIdentity.get(key) || { name: '', description: '', price: '', currency: '', availability: '', sku: '', brand: '', rating: '', reviewCount: '', url: '', imageUrls: [] };
     for (const field of ['name','description','price','currency','availability','sku','brand','rating','reviewCount']) {
       const value = clean(item[field] ?? (field === 'name' ? name : undefined));
