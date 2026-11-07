@@ -36,7 +36,10 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   const maxPages = background ? configuredBackgroundPageLimit : 3;
   const maxLinks = Math.max(1, Math.min(20_000, Number(retrievalConfiguration.maxLinks) || 10_000));
   // Discover a bounded number of listing/category pages before visiting products.
-  const maxDiscoveryPages = background ? Math.min(20, Math.max(1, Math.ceil(maxPages * 0.2))) : 2;
+  const isAysSounSeed = (resumeState?.seeds || urls).some(value => { try { return new URL(value).hostname.toLowerCase() === 'ayssoun.com'; } catch { return false; } });
+  // AysSoun's shop shows 12 of 63 items per page, so allow enough shop
+  // pagination pages to reach the complete catalogue in API-batched mode.
+  const maxDiscoveryPages = isAysSounSeed ? 10 : (background ? Math.min(20, Math.max(1, Math.ceil(maxPages * 0.2))) : 2);
   // Version the persisted crawl state. Older AysSoun jobs contain hundreds of
   // product URLs discovered from related-product widgets; discard that stale
   // queue once and rebuild from the original shop URL.
