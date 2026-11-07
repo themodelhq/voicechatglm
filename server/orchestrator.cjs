@@ -40,9 +40,9 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   // Version the persisted crawl state. Older AysSoun jobs contain hundreds of
   // product URLs discovered from related-product widgets; discard that stale
   // queue once and rebuild from the original shop URL.
-  const requestedSeeds = (state?.seeds || urls).map(value => canonicalPageUrl(value)).filter(Boolean);
+  const requestedSeeds = (resumeState?.seeds || urls).map(value => canonicalPageUrl(value)).filter(Boolean);
   const isAysSounTarget = requestedSeeds.some(value => { try { return new URL(value).hostname.toLowerCase() === 'ayssoun.com'; } catch { return false; } });
-  const state = isAysSounTarget && Number(state?.crawlVersion || 0) < 2 ? null : resumeState;
+  const state = isAysSounTarget && Number(resumeState?.crawlVersion || 0) < 2 ? null : resumeState;
   const seeds = (state?.seeds || urls).map(value => {
     try {
       const url = new URL(value);
