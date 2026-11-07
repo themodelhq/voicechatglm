@@ -93,12 +93,13 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   let discoveryVisited = Number(state?.discoveryVisited || 0);
   let productPagesVisited = Number(state?.productPagesVisited || 0);
   let batchProcessed = 0;
-  const batchLimit = background ? maxPages : Math.min(16, Math.max(1, Number(batchPageLimit) || 12));
+  const batchLimit = background ? maxPages : Math.min(2, Math.max(1, Number(batchPageLimit) || 2));
   while ((discoveryQueue.length || productQueue.length) && batchProcessed < batchLimit) {
     assertNotCancelled(signal);
-    // Always finish catalogue discovery before consuming the product queue. This
-    // prevents an early batch of products from hiding later category pages.
-    const phase = discoveryQueue.length ? 'discovery' : 'products';
+    // Reuse the proven two-product extraction cycle: once catalogue pages
+    // reveal product URLs, visit those product pages in pairs before doing more
+    // discovery. This prevents listing/category links from starving extraction.
+    const phase = productQueue.length ? 'products' : 'discovery';
     const sourceQueue = phase === 'discovery' ? discoveryQueue : productQueue;
     const batch = [];
     while (sourceQueue.length && batch.length < retrievalConfiguration.concurrency && batchProcessed + batch.length < batchLimit) {
