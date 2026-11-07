@@ -231,7 +231,7 @@ async function discoverSitemapProducts({ urls, configuration = webRetrievalConfi
     try {
       const checked = validateTargetUrl(root); if (checked.error) continue;
       if (!await robotsAllowed(checked.value, configuration, { signal, ...options })) continue;
-      const response = await retrieveWithRedirects(checked.value, configuration, { signal, ...options });
+      const response = await retrieveWithRetry(checked.value, configuration, { signal, ...options });
       const html = response.body.toString('utf8').slice(0, 500000);
       if (/cdn\.shopify\.com|Shopify\.theme|shopify-section/i.test(html)) platforms.add('shopify');
       if (/woocommerce|wp-content\/plugins\/woocommerce/i.test(html)) platforms.add('woocommerce');
