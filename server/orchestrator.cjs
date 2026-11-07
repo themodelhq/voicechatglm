@@ -37,20 +37,24 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   const maxLinks = Math.max(1, Math.min(20_000, Number(retrievalConfiguration.maxLinks) || 10_000));
   // Discover a bounded number of listing/category pages before visiting products.
   const maxDiscoveryPages = background ? Math.min(20, Math.max(1, Math.ceil(maxPages * 0.2))) : 2;
-  const seeds = (resumeState?.seeds || urls).map(value => {
-    // AysSoun's homepage is a marketing landing page; its canonical catalogue
-    // entry point is /shop/, which exposes the paginated 63-product listing.
+  // Version the persisted crawl state. Older AysSoun jobs contain hundreds of
+  // product URLs discovered from related-product widgets; discard that stale
+  // queue once and rebuild from the original shop URL.
+  const requestedSeeds = (state?.seeds || urls).map(value => canonicalPageUrl(value)).filter(Boolean);
+  const isAysSounTarget = requestedSeeds.some(value => { try { return new URL(value).hostname.toLowerCase() === 'ayssoun.com'; } catch { return false; } });
+  const state = isAysSounTarget && Number(state?.crawlVersion || 0) < 2 ? null : resumeState;
+  const seeds = (state?.seeds || urls).map(value => {
     try {
       const url = new URL(value);
       if (url.hostname.toLowerCase() === 'ayssoun.com' && (url.pathname === '/' || url.pathname === '')) url.pathname = '/shop/';
       return canonicalPageUrl(url.toString());
     } catch { return canonicalPageUrl(value); }
   }).filter(Boolean);
-  const hosts = new Set(resumeState?.hosts || seeds.map(value => new URL(value).hostname.toLowerCase()));
-  const productQueue = [...(resumeState?.productQueue || [])], productQueued = new Set(resumeState?.productQueued || productQueue);
-  const discoveryQueue = [...(resumeState?.discoveryQueue || seeds)], discoveryQueued = new Set(resumeState?.discoveryQueued || discoveryQueue);
-  const visited = new Set(resumeState?.visited || []), pages = [...(resumeState?.pages || [])], failures = [...(resumeState?.failures || [])];
-  const productUrl = value => { try { const url = new URL(value), path = url.pathname.toLowerCase(); return /(?:^|\/)(?:products?|produits?|product-detail|item|p|artikel|produto)\/(?:[^/]+)(?:\/|$)/.test(path) || /[?&](?:product_id|product|sku)=/i.test(url.search); } catch { return false; } };
+  const hosts = new Set(state?.hosts || seeds.map(value => new URL(value).hostname.toLowerCase()));
+  const productQueue = [...(state?.productQueue || [])], productQueued = new Set(state?.productQueued || productQueue);
+  const discoveryQueue = [...(state?.discoveryQueue || seeds)], discoveryQueued = new Set(state?.discoveryQueued || discoveryQueue);
+  const visited = new Set(state?.visited || []), pages = [...(state?.pages || [])], failures = [...(state?.failures || [])];
+  const productUrl = value => { try { const url = new URL(value), path = url.pathname.toLowerCase(); if (url.hostname.toLowerCase() === 'ayssoun.com') return /^\/product\/[^/]+\/?$/.test(path); return /(?:^|\/)(?:products?|produits?|product-detail|item|p|artikel|produto)\/(?:[^/]+)(?:\/|$)/.test(path) || /[?&](?:product_id|product|sku)=/i.test(url.search); } catch { return false; } };
   const listingUrl = value => {
     try {
       const url = new URL(value), path = url.pathname.toLowerCase();
@@ -74,8 +78,8 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   const sitemapChecked = true;
   const sitemapProductsFound = 0;
   const commercePlatforms = [];
-  let discoveryVisited = Number(resumeState?.discoveryVisited || 0);
-  let productPagesVisited = Number(resumeState?.productPagesVisited || 0);
+  let discoveryVisited = Number(state?.discoveryVisited || 0);
+  let productPagesVisited = Number(state?.productPagesVisited || 0);
   let batchProcessed = 0;
   const batchLimit = background ? maxPages : Math.min(16, Math.max(1, Number(batchPageLimit) || 12));
   while ((discoveryQueue.length || productQueue.length) && batchProcessed < batchLimit) {
@@ -119,8 +123,13 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
         if (!canonical || !hosts.has(new URL(canonical).hostname.toLowerCase())) continue;
         const parsed = new URL(canonical);
         if (/\\.(?:pdf|zip|png|jpe?g|gif|webp|svg|mp4|mp3|css|js|xml)(?:$|\?)/i.test(parsed.pathname)) continue;
-        if (link.productCandidate || productUrl(canonical)) enqueueProduct(canonical);
-        else if (phase === 'discovery' && discoveryVisited < maxDiscoveryPages) enqueueDiscovery(canonical);
+        // Product links are collected only from catalogue/listing pages.
+        // Never follow recommendations, related products, menus, or cross-links
+        // found inside an individual product page.
+        if (phase === 'discovery') {
+          if (productUrl(canonical) && (link.productCandidate || isAysSounTarget)) enqueueProduct(canonical);
+          else if (discoveryVisited < maxDiscoveryPages) enqueueDiscovery(canonical);
+        }
       }
     }
     await onProgress?.({
@@ -154,7 +163,7 @@ async function runScrape({ urls, retrievalConfiguration, signal, retrievalOption
   const remaining = discoveryQueue.length + productQueue.length;
   const hasMore = remaining > 0;
   const partial = Boolean(failures.length || hasMore || (background && pages.length + failures.length >= maxPages));
-  const nextState = { seeds, hosts:[...hosts], discoveryQueue, discoveryQueued:[...discoveryQueued], productQueue, productQueued:[...productQueued], visited:[...visited], pages:pages.map(page=>({url:page.url,requestedUrl:page.requestedUrl,finalUrl:page.finalUrl,title:page.title,pageType:page.pageType,products:page.products||[]})), failures, discoveryVisited, productPagesVisited, sitemapChecked, sitemapProductsFound, commercePlatforms };
+  const nextState = { crawlVersion: 2, seeds, hosts:[...hosts], discoveryQueue, discoveryQueued:[...discoveryQueued], productQueue, productQueued:[...productQueued], visited:[...visited], pages:pages.map(page=>({url:page.url,requestedUrl:page.requestedUrl,finalUrl:page.finalUrl,title:page.title,pageType:page.pageType,products:page.products||[]})), failures, discoveryVisited, productPagesVisited, sitemapChecked, sitemapProductsFound, commercePlatforms };
   const steps = pages.map((page, index) => ({ id: `retrieve_${index + 1}`, operation: 'website_retrieval', inputs: { url: page.requestedUrl || page.url }, output: 'page_extraction', onError: 'partial', cancellable: true }));
   if (!pages.length) throw Object.assign(new Error('No requested page could be retrieved under the configured safety policy.'), { code: failures[0]?.code || 'RETRIEVAL_FAILED', status: 422, failures });
   return {
