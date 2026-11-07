@@ -87,7 +87,7 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
         // Never hide API advancement failures: otherwise the progress card can
         // appear frozen indefinitely while every poll is failing.
         const detail = (error instanceof Error ? error.message : 'The API could not advance the catalogue batch.').slice(0, 240);
-        updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id !== pendingJobs[0]?.id ? entry : { ...entry, scrapeProgress: { ...(entry.scrapeProgress || { status: 'running' as const }), lastError: detail } }) }));
+        updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => !pendingJobs.some(pending => pending.id === entry.id) ? entry : { ...entry, scrapeProgress: { ...(entry.scrapeProgress || { status: 'running' as const }), lastError: detail } }) }));
       }
       finally { checking = false; }
     }, 3000);
