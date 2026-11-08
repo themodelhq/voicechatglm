@@ -45,6 +45,21 @@ describe('durable analysis worker leases', () => {
     expect(query).toContain('lease_expires_at=NULL');
   });
 
+  it('persists a safe diagnostic stage in the job progress JSON', async () => {
+    let query = '';
+    let values: unknown[] = [];
+    const repository = new Repository({ query: async (sql: string, params: unknown[]) => { query = sql; values = params; return { rowCount: 1, rows: [{ id: 'job-1' }] }; } });
+    await expect(repository.completeAnalysisJob({
+      id: 'job-1', status: 'failed', errorCode: 'MODEL_CONFIGURATION',
+      errorMessage: 'The file analysis could not be completed.',
+      workerId: 'worker-1', diagnosticStage: 'model_configuration'
+    })).resolves.toBe(true);
+    expect(query).toContain("jsonb_build_object('diagnosticStage',$7::text)");
+    expect(query).toContain('worker_id = $6');
+    expect(values[5]).toBe('worker-1');
+    expect(values[6]).toBe('model_configuration');
+  });
+
   it('requeues expired leases instead of failing every long-running analysis', async () => {
     const queries: string[] = [];
     const repository = new Repository({ query: async (sql: string) => { queries.push(sql); return { rows: [] }; } });
