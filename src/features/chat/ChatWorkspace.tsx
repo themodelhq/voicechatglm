@@ -4,7 +4,7 @@ import { Button, Brand, EmptyState, Icon, StatusBadge } from '../../components/u
 import { ConversationShareDialog } from './ConversationShareDialog';
 import { useWorkspace } from '../../app/WorkspaceContext';
 import type { Agent, ArtifactReference, AttachmentReference, Message } from '../../types/domain';
-import { analyzeFiles, getAnalysisJob, cancelAnalysisJob, ApiError, artifactDownloadUrl, deleteFile, listConversationShares, resubmitConversationMessage, revokeConversationShare, sendChat, setConversationMessageFeedback, advanceScrapeJob, getArtifact, type ShareLink, uploadFiles } from '../../services/api/client';
+import { analyzeFiles, getAnalysisJob, cancelAnalysisJob, ApiError, artifactDownloadUrl, deleteFile, listConversationShares, resubmitConversationMessage, revokeConversationShare, sendChat, setConversationMessageFeedback, advanceScrapeJob, getArtifact, type AnalysisJobAccepted, type ShareLink, uploadFiles } from '../../services/api/client';
 import { formatTime, id, titleFromMessage } from '../../utils/format';
 
 const MAX_MESSAGE_LENGTH = 12_000;
@@ -166,7 +166,7 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
   const changeDraft = (value: string) => { setDraft(value); saveDraft(draftKey, value); };
   const patchConversation = (targetId: string, pendingId: string, update: (message: Message) => Message) => updateConversations(items => items.map(item => item.id !== targetId ? item : { ...item, updatedAt: new Date().toISOString(), messages: item.messages.map(message => message.id === pendingId ? update(message) : message) }));
   const finishAttachmentState = (targetId: string, stateName: AttachmentReference['state'], attachmentError?: string) => updateConversations(items => items.map(item => item.id !== targetId ? item : { ...item, messages: item.messages.map(message => message.role === 'user' && message.attachments?.some(attachment => attachment.state === 'analyzing') ? { ...message, attachments: message.attachments.map(attachment => ({ ...attachment, state: stateName, ...(attachmentError ? { error: attachmentError } : {}) })) } : message) }));
-  const isAnalysisJobAccepted = (value: FileAnalysisSubmission): value is AnalysisJobAccepted => 'accepted' in value && value.accepted === true;
+  const isAnalysisJobAccepted = (value: Awaited<ReturnType<typeof analyzeFiles>>): value is AnalysisJobAccepted => 'accepted' in value && value.accepted === true;
   const requestAssistant = async (targetId: string, message: string, pendingId: string, userMessageId: string, messageAttachments?: AttachmentReference[]) => {
     const controller = new AbortController(); requests.current.set(pendingId, controller);
     try {
