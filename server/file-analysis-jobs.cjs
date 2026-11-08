@@ -27,7 +27,8 @@ async function processJob(job) {
   const controller = new AbortController();
   let heartbeatBusy = false;
   const initialLease = await repository.renewAnalysisJobLease(job.id, WORKER_ID, LEASE_MS);
-  if (!initialLease || initialLease.cancelRequested) controller.abort(Object.assign(new Error('Analysis was cancelled.'), { code: 'CANCELLED' }));
+  if (!initialLease) throw Object.assign(new Error('The analysis worker no longer owns this job lease.'), { code: 'JOB_LEASE_LOST' });
+  if (initialLease.cancelRequested) controller.abort(Object.assign(new Error('Analysis was cancelled.'), { code: 'CANCELLED' }));
   const heartbeat = setInterval(async () => {
     if (heartbeatBusy) return;
     heartbeatBusy = true;
@@ -53,6 +54,9 @@ async function processJob(job) {
       signal: controller.signal
     });
     if (controller.signal.aborted || await repository.cancellationRequested(job.user_id, job.id)) throw Object.assign(new Error('Analysis was cancelled.'), { code: 'CANCELLED' });
+    const finalLease = await repository.renewAnalysisJobLease(job.id, WORKER_ID, LEASE_MS);
+    if (!finalLease) throw Object.assign(new Error('The analysis worker no longer owns this job lease.'), { code: 'JOB_LEASE_LOST' });
+    if (finalLease.cancelRequested) throw Object.assign(new Error('Analysis was cancelled.'), { code: 'CANCELLED' });
 
     if (output.exportData) {
       const exportData = output.exportData;
@@ -74,6 +78,9 @@ async function processJob(job) {
     if (controller.signal.aborted || await repository.cancellationRequested(job.user_id, job.id)) throw Object.assign(new Error('Analysis was cancelled.'), { code: 'CANCELLED' });
     const resultKey = store.keyFor(`artifacts/${job.user_id}/analysis/${job.id}.json`);
     await store.putJson(resultKey, output, controller.signal);
+    const persistenceLease = await repository.renewAnalysisJobLease(job.id, WORKER_ID, LEASE_MS);
+    if (!persistenceLease) throw Object.assign(new Error('The analysis worker no longer owns this job lease.'), { code: 'JOB_LEASE_LOST' });
+    if (persistenceLease.cancelRequested) throw Object.assign(new Error('Analysis was cancelled.'), { code: 'CANCELLED' });
     const status = output.partial ? 'partially_analyzed' : 'analysis_completed';
 
     // Persist the visible assistant response before publishing the terminal job state.
@@ -94,7 +101,7 @@ async function processJob(job) {
     const cancelled = error?.code === 'CANCELLED' || controller.signal.aborted;
     const terminal = cancelled ? 'cancelled' : 'failed';
     await repository.completeAnalysisJob({ id: job.id, status: terminal, errorCode: cancelled ? 'CANCELLED' : String(error?.code || 'ANALYSIS_FAILED').slice(0, 80), errorMessage: cancelled ? 'Analysis was cancelled.' : 'The file analysis could not be completed.', workerId: WORKER_ID }).catch(() => false);
-    if (request.conversationId && request.assistantMessageId) {
+    if (error?.code !== 'JOB_LEASE_LOST' && request.conversationId && request.assistantMessageId) {
       await repository.updateConversationMessage({
         userId: job.user_id, conversationId: request.conversationId, id: request.assistantMessageId,
         content: '', status: cancelled ? 'cancelled' : 'error',
