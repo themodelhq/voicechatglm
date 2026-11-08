@@ -121,6 +121,20 @@ function parseGradioCompletion(sse) {
               return [];
             };
             upstreamText = collect(payload).join(' ').slice(0, 3000);
+            // Gradio error payloads are not schema-stable. If no conventional
+            // error/message field exists, retain bounded scalar details rather
+            // than reducing a real provider failure to a generic code.
+            if (!upstreamText) {
+              const collectText = (value, depth = 0) => {
+                if (depth > 4 || value == null) return [];
+                if (typeof value === 'string') return [value];
+                if (typeof value === 'number' || typeof value === 'boolean') return [String(value)];
+                if (Array.isArray(value)) return value.flatMap(item => collectText(item, depth + 1));
+                if (typeof value === 'object') return Object.values(value).flatMap(item => collectText(item, depth + 1));
+                return [];
+              };
+              upstreamText = collectText(payload).join(' ').slice(0, 3000);
+            }
           } catch { upstreamText = rawData.slice(0, 3000); }
         }
         const safeUpstreamMessage = upstreamText
