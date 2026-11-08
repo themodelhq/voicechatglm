@@ -108,8 +108,10 @@ describe('upstream diagnostic edge cases', () => {
   });
 
   it('extracts nested runtime scheduler and worker messages', () => {
-    expect(() => parseGradioCompletion(
-      'event: error\\ndata: {"type":"runtime_failure","data":{"message_text":"CUDA worker allocation failed"}}\\n\\n'
-    )).toThrow(expect.objectContaining({ upstreamMessage: expect.stringContaining('CUDA worker allocation failed') }));
+    let caught: unknown;
+    try {
+      parseGradioCompletion('event: error\\ndata: {"type":"runtime_failure","data":{"message_text":"CUDA worker allocation failed"}}\\n\\n');
+    } catch (error) { caught = error; }
+    expect(caught).toMatchObject({ upstreamMessage: expect.stringContaining('CUDA worker allocation failed') });
   });
 });
