@@ -96,7 +96,7 @@ async function processJob(job) {
     }
     await Promise.all(files.map(file => repository.setFileStatus(job.user_id, file.id, status)));
     const finalized = await repository.completeAnalysisJob({ id: job.id, status, resultStorageKey: resultKey, workerId: WORKER_ID });
-    if (!finalized) throw Object.assign(new Error('The analysis worker lost its job lease before finalization.'), { code: 'JOB_FINALIZE_CONFLICT' });
+    if (!finalized) throw Object.assign(new Error('The analysis worker lost its job lease before finalization.'), { code: 'JOB_LEASE_LOST' });
   } catch (error) {
     const cancelled = error?.code === 'CANCELLED' || controller.signal.aborted;
     const terminal = cancelled ? 'cancelled' : 'failed';
