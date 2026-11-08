@@ -104,7 +104,24 @@ function parseGradioCompletion(sse) {
   for (const event of events) {
     const lines = event.split(/\r?\n/);
     if (!lines.some(line => line.trim() === 'event: complete')) {
-      if (lines.some(line => line.trim() === 'event: error')) throw Object.assign(new Error('Hugging Face inference returned an error event.'), { code: 'MODEL_UPSTREAM_ERROR' });
+      if (lines.some(line => line.trim() === 'event: error')) {
+        const dataLine = lines.find(line => line.startsWith('data:'));
+        let upstreamText = '';
+        if (dataLine) {
+          try {
+            const payload = JSON.parse(dataLine.slice(5).trim());
+            upstreamText = typeof payload === 'string' ? payload : typeof payload?.error === 'string' ? payload.error : typeof payload?.message === 'string' ? payload.message : '';
+          } catch { upstreamText = ''; }
+        }
+        const normalized = upstreamText.toLowerCase();
+        const upstreamCode = /out of memory|cuda out of memory|memoryerror|cublas.*alloc/.test(normalized) ? 'UPSTREAM_OUT_OF_MEMORY'
+          : /context length|maximum sequence|too many tokens|input.*too long|sequence length/.test(normalized) ? 'UPSTREAM_INPUT_TOO_LONG'
+          : /model.*(not loaded|loading|unavailable)|failed to load|loading.*model/.test(normalized) ? 'UPSTREAM_MODEL_NOT_READY'
+          : /timeout|timed out|deadline exceeded/.test(normalized) ? 'UPSTREAM_TIMEOUT'
+          : /rate.?limit|too many requests|429/.test(normalized) ? 'UPSTREAM_RATE_LIMIT'
+          : 'UPSTREAM_GENERATION_ERROR';
+        throw Object.assign(new Error('Hugging Face inference returned an error event.'), { code: 'MODEL_UPSTREAM_ERROR', upstreamCode });
+      }
       continue;
     }
     const dataLine = lines.find(line => line.startsWith('data:'));
