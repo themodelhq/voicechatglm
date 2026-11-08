@@ -174,15 +174,28 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
 .sidebar.collapsed .mobile-scrim { display:none; }
 .sidebar.collapsed + .main-column { margin-left:68px; }
 .sidebar.collapsed .row-more { display:none; }
+/* A collapsed sidebar stays an icon rail at every viewport width. */
 @media (max-width:760px) {
-  .sidebar.collapsed { width:min(292px,82vw); padding:16px 12px; align-items:stretch; }
-  .sidebar.collapsed .sidebar-top { min-height:38px; padding:0 4px 12px; justify-content:space-between; }
-  .sidebar.collapsed .new-chat { width:100%; min-width:0; height:auto; min-height:39px; margin:0 0 13px; padding:8px 12px; justify-content:flex-start; gap:8px; }
-  .sidebar.collapsed .new-chat::after { content:'New chat'; }
-  .sidebar.collapsed .primary-nav { width:100%; }
-  .sidebar.collapsed .primary-nav ul { justify-items:stretch; gap:2px; }
-  .sidebar.collapsed .primary-nav li { display:block; }
-  .sidebar.collapsed .primary-nav button { width:100%; min-width:0; height:auto; min-height:39px; justify-content:flex-start; padding:8px 10px; }
-  .sidebar.collapsed .primary-nav span { display:initial !important; }
-  .sidebar.collapsed .conversations-pane,.sidebar.collapsed .sidebar-footer { display:flex !important; }
+  .sidebar.collapsed { width:68px; min-width:68px; padding:14px 9px 12px; align-items:center; }
+  .sidebar.collapsed .sidebar-top { width:100%; min-height:42px; padding:0 0 12px; justify-content:center; gap:3px; }
+  .sidebar.collapsed .sidebar-top .brand { flex:0 0 30px; justify-content:center; }
+  .sidebar.collapsed .sidebar-top .brand > span:last-child { display:none; }
+  .sidebar.collapsed .sidebar-top .collapse-button { flex:0 0 30px; width:30px; min-width:30px; height:32px; padding:5px; }
+  .sidebar.collapsed .new-chat { width:48px; min-width:48px; height:44px; min-height:44px; margin:8px 0 12px; padding:0; justify-content:center; gap:0; border-radius:12px; }
+  .sidebar.collapsed .new-chat::after { content:none; }
+  .sidebar.collapsed .new-chat kbd { display:none !important; }
+  .sidebar.collapsed .primary-nav { display:block; width:100%; }
+  .sidebar.collapsed .primary-nav ul { display:grid; justify-items:center; gap:5px; }
+  .sidebar.collapsed .primary-nav li { display:flex; width:100%; justify-content:center; }
+  .sidebar.collapsed .primary-nav button { display:flex; width:48px; min-width:48px; height:44px; min-height:44px; justify-content:center; align-items:center; gap:0; padding:0; margin:0; border-radius:12px; }
+  .sidebar.collapsed .primary-nav button > .icon { display:inline-flex !important; visibility:visible !important; opacity:1 !important; width:19px; height:19px; flex:0 0 19px; color:currentColor; }
+  .sidebar.collapsed .primary-nav button > span { display:none !important; }
+  .sidebar.collapsed .conversations-pane,.sidebar.collapsed .sidebar-footer { display:none !important; }
+  .sidebar.collapsed .row-more { display:none; }
+  .sidebar.collapsed + .main-column { margin-left:68px; }
 }
+
+/* Keep every destination visible as an icon in the collapsed rail, including on mobile. */
+.sidebar.collapsed .primary-nav button > .icon { display:inline-flex !important; visibility:visible !important; opacity:1 !important; flex:0 0 19px; width:19px; height:19px; color:var(--muted); }
+.sidebar.collapsed .primary-nav button.nav-active > .icon { color:var(--accent-strong); }
+.sidebar.collapsed .primary-nav button > span { display:none !important; }
