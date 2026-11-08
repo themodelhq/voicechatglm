@@ -13,7 +13,9 @@ describe('Hugging Face Gradio provider contract', () => {
   it('parses only a non-empty Gradio complete event and rejects error/incomplete payloads', () => {
     const { parseGradioCompletion } = require('../server/proxy-core.cjs');
     expect(parseGradioCompletion('event: complete\ndata: ["generated answer"]\n\n')).toMatchObject({ status: 200, body: { response: 'generated answer', model: 'themodelhq/voicechatglm-qwen3-8b', revision: '9f25d05035bfda0de9b36dfc5911ddcdb378f3c8' } });
-    expect(() => parseGradioCompletion('event: error\ndata: "failed"\n\n')).toThrow();
+    expect(() => parseGradioCompletion('event: error\ndata: "CUDA out of memory"\n\n')).toThrow(expect.objectContaining({ code: 'MODEL_UPSTREAM_ERROR', upstreamCode: 'UPSTREAM_OUT_OF_MEMORY' }));
+    expect(() => parseGradioCompletion('event: error\ndata: {"error":"Input exceeds maximum sequence length"}\n\n')).toThrow(expect.objectContaining({ code: 'MODEL_UPSTREAM_ERROR', upstreamCode: 'UPSTREAM_INPUT_TOO_LONG' }));
+    expect(() => parseGradioCompletion('event: error\ndata: "failed"\n\n')).toThrow(expect.objectContaining({ code: 'MODEL_UPSTREAM_ERROR', upstreamCode: 'UPSTREAM_GENERATION_ERROR' }));
     expect(() => parseGradioCompletion('event: complete\ndata: [""]\n\n')).toThrow();
     expect(() => parseGradioCompletion('event: heartbeat\ndata: {}\n\n')).toThrow();
   });
