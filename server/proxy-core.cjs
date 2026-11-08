@@ -151,7 +151,7 @@ function parseGradioCompletion(sse) {
           : /cuda error|cuda.*(allocation|alloc|worker|failed)|device-side assert|no kernel image|cudnn|nccl|gpu.*(unavailable|failed)/.test(normalized) ? 'UPSTREAM_GPU_ERROR'
           : /validationerror|invalid.*(input|parameter)|expected.*(string|list|dict)|typeerror|valueerror/.test(normalized) ? 'UPSTREAM_INPUT_VALIDATION'
           : 'UPSTREAM_GENERATION_ERROR';
-        throw Object.assign(new Error('Hugging Face inference returned an error event.'), { code: 'MODEL_UPSTREAM_ERROR', upstreamCode, upstreamMessage: safeUpstreamMessage || undefined });
+        throw Object.assign(new Error('Hugging Face inference returned an error event.'), { code: 'MODEL_UPSTREAM_ERROR', upstreamCode, upstreamMessage: safeUpstreamMessage || 'Gradio returned event:error without a usable data payload. The Space runtime exception is not included in this SSE response; inspect the Hugging Face Space runtime logs for the matching request time.' });
       }
       continue;
     }
