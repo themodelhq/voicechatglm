@@ -14,6 +14,11 @@ describe('documented server-side Tavily web search', () => {
     ], usage: { credits: 1 } }), { status: 200 }); } });
     expect(output.provider).toBe('tavily'); expect(output.results).toHaveLength(2); expect(output.results[0].url).toBe('https://example.test/article?utm_source=mail'); expect(output.results[0].publicationDate).toBe('2026-10-10T00:00:00.000Z'); expect(output.usage).toEqual({ credits: 1 }); expect(calls[0].url).toBe('https://api.tavily.com/search'); expect(calls[0].init.headers.Authorization).toBe('Bearer test-server-only-key-value'); expect(JSON.parse(calls[0].init.body)).toMatchObject({ search_depth: 'basic', max_results: 3, include_answer: false, include_raw_content: false });
   });
+  it('supports news-focused search for current events', async () => {
+    let payload: any;
+    await searchWeb({ query: 'Did Donald Trump win the midterms?', topic: 'news', configuration: webSearchConfig(env), fetchImpl: async (_url: URL | string, init: any) => { payload = JSON.parse(init.body); return new Response(JSON.stringify({ results: [{ title: 'Election result update', url: 'https://news.example/election', content: 'Latest election coverage', published_date: '2026-11-04' }] }), { status: 200 }); } });
+    expect(payload).toMatchObject({ topic: 'news', search_depth: 'basic' });
+  });
   it('fails honestly for disabled, malformed, exhausted-credit, and provider-limit paths', async () => {
     await expect(searchWeb({ query: 'topic', configuration: webSearchConfig({ WEB_SEARCH_ENABLED: 'false' } as NodeJS.ProcessEnv) })).rejects.toMatchObject({ code: 'CAPABILITY_UNAVAILABLE' });
     await expect(searchWeb({ query: 'topic', configuration: webSearchConfig(env), fetchImpl: async () => new Response('{not-json', { status: 200 }) })).rejects.toMatchObject({ code: 'MALFORMED_RESPONSE' });
