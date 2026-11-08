@@ -9,13 +9,14 @@ describe('chat upstream diagnostics sanitization', () => {
   });
 
   it('redacts URLs, bearer credentials, and secret-like values', () => {
-    const value = 'scheduler failed at https://example.test/private?token=abc Bearer hf_secret123 api_key=topsecret';
+    const value = 'scheduler failed at https://example.test/private?token=abc Bearer hf_secret123 Authorization: Bearer auth_secret123 api_key=topsecret';
     const result = safeDiagnosticText(value);
     expect(result).toContain('[URL]');
     expect(result).toContain('Bearer [REDACTED]');
     expect(result).toContain('api_key=[REDACTED]');
     expect(result).not.toContain('hf_secret123');
     expect(result).not.toContain('topsecret');
+    expect(result).not.toContain('auth_secret123');
   });
 
   it('limits diagnostic text and ignores missing or non-string values', () => {
