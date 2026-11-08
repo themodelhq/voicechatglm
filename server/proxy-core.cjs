@@ -148,7 +148,7 @@ function parseGradioCompletion(sse) {
           : /model.*(not loaded|loading|unavailable)|failed to load|loading.*model|weights.*not found/.test(normalized) ? 'UPSTREAM_MODEL_NOT_READY'
           : /timeout|timed out|deadline exceeded/.test(normalized) ? 'UPSTREAM_TIMEOUT'
           : /rate.?limit|too many requests|429|device-api\.zero|zero.?gpu.*(queue|capacity|limit)/.test(normalized) ? 'UPSTREAM_RATE_LIMIT'
-          : /cuda error|device-side assert|no kernel image|cudnn|nccl|gpu.*(unavailable|failed)/.test(normalized) ? 'UPSTREAM_GPU_ERROR'
+          : /cuda error|cuda.*(allocation|alloc|worker|failed)|device-side assert|no kernel image|cudnn|nccl|gpu.*(unavailable|failed)/.test(normalized) ? 'UPSTREAM_GPU_ERROR'
           : /validationerror|invalid.*(input|parameter)|expected.*(string|list|dict)|typeerror|valueerror/.test(normalized) ? 'UPSTREAM_INPUT_VALIDATION'
           : 'UPSTREAM_GENERATION_ERROR';
         throw Object.assign(new Error('Hugging Face inference returned an error event.'), { code: 'MODEL_UPSTREAM_ERROR', upstreamCode, upstreamMessage: safeUpstreamMessage || undefined });
