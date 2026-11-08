@@ -99,6 +99,12 @@ async function processJob(job) {
     if (!finalized) throw Object.assign(new Error('The analysis worker lost its job lease before finalization.'), { code: 'JOB_LEASE_LOST' });
   } catch (error) {
     const cancelled = error?.code === 'CANCELLED' || controller.signal.aborted;
+    console.error('[VoiceChatGLM file-analysis-worker] Job processing failed.', {
+      jobId: job.id,
+      name: error?.name || 'Error',
+      code: error?.code || 'ANALYSIS_FAILED',
+      message: String(error?.message || 'Unknown error').slice(0, 300)
+    });
     const terminal = cancelled ? 'cancelled' : 'failed';
     await repository.completeAnalysisJob({ id: job.id, status: terminal, errorCode: cancelled ? 'CANCELLED' : String(error?.code || 'ANALYSIS_FAILED').slice(0, 80), errorMessage: cancelled ? 'Analysis was cancelled.' : 'The file analysis could not be completed.', workerId: WORKER_ID }).catch(() => false);
     if (error?.code !== 'JOB_LEASE_LOST' && request.conversationId && request.assistantMessageId) {
