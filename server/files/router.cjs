@@ -294,7 +294,9 @@ async function productionFileHandler(req, res, cfg, providerRequest) {
         if (job.result_storage_key && ['analysis_completed', 'partially_analyzed'].includes(job.status)) {
           result = await store.getJson(job.result_storage_key, policy.maxAnalysisCharacters * Math.max(1, policy.maxFilesPerMessage) * 4);
         }
-        return send(res, 200, { jobId: job.id, status: job.status, ...(result ? { result } : {}), ...(['failed', 'cancelled'].includes(job.status) ? { error: job.error_message || (job.status === 'cancelled' ? 'Analysis was cancelled.' : 'Analysis failed.') } : {}) }, origin, cfg);
+        const diagnosticCode = /^[A-Z0-9_]{1,80}$/.test(String(job.error_code || '')) ? String(job.error_code) : undefined;
+        const diagnosticStage = typeof job.progress?.diagnosticStage === 'string' && /^[a-z0-9_]{1,80}$/.test(job.progress.diagnosticStage) ? job.progress.diagnosticStage : undefined;
+        return send(res, 200, { jobId: job.id, status: job.status, ...(result ? { result } : {}), ...(['failed', 'cancelled'].includes(job.status) ? { error: job.error_message || (job.status === 'cancelled' ? 'Analysis was cancelled.' : 'Analysis failed.') } : {}), ...(job.status === 'failed' ? { diagnostic: { ...(diagnosticCode ? { code: diagnosticCode } : {}), ...(diagnosticStage ? { stage: diagnosticStage } : {}) } } : {}) }, origin, cfg);
       }
     } catch {
       return safeError(res, 503, 'Analysis result is temporarily unavailable.', origin, cfg);
