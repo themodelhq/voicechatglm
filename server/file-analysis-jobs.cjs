@@ -113,15 +113,18 @@ async function processJobUnsafe(job) {
     if (!finalized) throw Object.assign(new Error('The analysis worker lost its job lease before finalization.'), { code: 'JOB_LEASE_LOST' });
   } catch (error) {
     const cancelled = error?.code === 'CANCELLED' || controller.signal.aborted;
+    const upstreamCode = /^[A-Z0-9_]{1,80}$/.test(String(error?.upstreamCode || '')) ? String(error.upstreamCode) : undefined;
+    const errorCode = cancelled ? 'CANCELLED' : upstreamCode || (/^[A-Z0-9_]{1,80}$/.test(String(error?.code || '')) ? String(error.code) : 'ANALYSIS_FAILED');
     console.error('[VoiceChatGLM file-analysis-worker] Job processing failed.', {
       jobId: job.id,
       name: error?.name || 'Error',
       code: /^[A-Z0-9_]{1,80}$/.test(String(error?.code || '')) ? String(error.code) : 'ANALYSIS_FAILED',
+      ...(upstreamCode ? { upstreamCode } : {}),
       stage: job._diagnosticStage || 'worker_processing',
       message: String(error?.message || 'Unknown error').slice(0, 300)
     });
     const terminal = cancelled ? 'cancelled' : 'failed';
-    await repository.completeAnalysisJob({ id: job.id, status: terminal, errorCode: cancelled ? 'CANCELLED' : (/^[A-Z0-9_]{1,80}$/.test(String(error?.code || '')) ? String(error.code) : 'ANALYSIS_FAILED'), errorMessage: cancelled ? 'Analysis was cancelled.' : 'The file analysis could not be completed.', workerId: WORKER_ID, diagnosticStage: job._diagnosticStage || 'worker_processing' }).catch(() => false);
+    await repository.completeAnalysisJob({ id: job.id, status: terminal, errorCode, errorMessage: cancelled ? 'Analysis was cancelled.' : 'The file analysis could not be completed.', workerId: WORKER_ID, diagnosticStage: job._diagnosticStage || 'worker_processing' }).catch(() => false);
     if (error?.code !== 'JOB_LEASE_LOST' && request.conversationId && request.assistantMessageId) {
       await repository.updateConversationMessage({
         userId: job.user_id, conversationId: request.conversationId, id: request.assistantMessageId,
