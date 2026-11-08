@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { safeDiagnosticCode, safeDiagnosticText, upstreamDiagnosticFields } from '../server/proxy-core.cjs';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { callHuggingFaceModel, safeDiagnosticCode, safeDiagnosticText, upstreamDiagnosticFields } from '../server/proxy-core.cjs';
 
 describe('chat upstream diagnostics sanitization', () => {
   it('accepts stable upstream error codes and rejects unsafe values', () => {
@@ -41,5 +41,56 @@ describe('chat upstream diagnostic fields', () => {
 
   it('omits absent, invalid, and out-of-range upstream fields', () => {
     expect(upstreamDiagnosticFields({ upstreamCode: 'not safe', upstreamMessage: '', upstreamStatus: 700 })).toEqual({});
+  });
+});
+
+describe('Hugging Face ZeroGPU rate-limit handling', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const env = {
+    VOICECHATGLM_API_URL: 'https://voicechatglm-inference.hf.space',
+    VOICECHATGLM_API_KEY: 'test-app-key',
+    HF_TOKEN: 'hf_test_token'
+  };
+
+  it('does not create new generation submissions after a scheduler event:error 429', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ event_id: 'eventid123456' })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => 'event: error\\ndata: {"error":"Too Many Requests from device-api.zero/schedule"}\\n\\n'
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(callHuggingFaceModel(env, '/v1/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'Hello', max_new_tokens: 64 })
+    }, 60000)).rejects.toMatchObject({
+      code: 'MODEL_UPSTREAM_ERROR',
+      upstreamCode: 'UPSTREAM_RATE_LIMIT'
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not resubmit when the Gradio submission endpoint itself returns HTTP 429', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      headers: { get: () => null },
+      text: async () => JSON.stringify({ detail: 'Too Many Requests' })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await callHuggingFaceModel(env, '/v1/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'Hello', max_new_tokens: 64 })
+    }, 60000);
+    expect(result.status).toBe(429);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
