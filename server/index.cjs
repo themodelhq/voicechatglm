@@ -23,7 +23,6 @@ async function start() {
   if (production) { startupStage = 'PostgreSQL migrations'; await runMigrations(); }
   // Run resumable catalogue batches inside the existing API web service; no separate paid worker is required.
   if (production && process.env.WEB_SCRAPING_ENABLED === 'true') { startupStage = 'catalogue processor initialization'; stopScrapeWorker = startScrapeWorker(); }
-  if (production && process.env.FILE_ANALYSIS_ENABLED === 'true') { startupStage = 'file-analysis worker initialization'; stopAnalysisWorker = startAnalysisWorker(); }
   // Enabling production file analysis is an explicit deployment decision. Require
   // database/migrations, Redis, private storage, OCR, and model readiness before
   // accepting traffic. The external scanner is also probed, but may sleep while idle;
@@ -40,6 +39,7 @@ async function start() {
       console.warn('Malware scanner is not currently reachable. File uploads will remain unavailable until the scanner is ready.');
     }
   }
+  if (production && process.env.FILE_ANALYSIS_ENABLED === 'true') { startupStage = 'file-analysis worker initialization'; stopAnalysisWorker = startAnalysisWorker(); }
   if (production) { startupStage = 'maintenance initialization'; stopMaintenance = startMaintenance(); }
   startupStage = 'HTTP port binding';
   server.listen(port, host, () => console.log(`VoiceChatGLM application listening on ${host}:${port}`));
