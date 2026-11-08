@@ -107,7 +107,7 @@ class Repository {
       if (request?.conversationId && request?.assistantMessageId) {
         substage = 'persist_job_reference_on_assistant_message';
         const linked = await client.query(`UPDATE conversation_messages
-          SET metadata=COALESCE(metadata,'{}'::jsonb)||jsonb_build_object('analysisJobId',$3,'route','file_analysis'),
+          SET metadata=COALESCE(metadata,'{}'::jsonb)||jsonb_build_object('analysisJobId',$3::text,'route','file_analysis'),
               updated_at=NOW()
           WHERE id=$1 AND conversation_id=$2 AND user_id=$4 AND role='assistant'
           RETURNING id`, [request.assistantMessageId, request.conversationId, id, userId]);
@@ -155,7 +155,7 @@ class Repository {
         const request = job.request || {};
         if (request.conversationId && request.assistantMessageId) {
           await client.query(`UPDATE conversation_messages SET content='',status='error',
-            metadata=COALESCE(metadata,'{}'::jsonb)||jsonb_build_object('route','file_analysis','analysisJobId',$3,'error',$4),
+            metadata=COALESCE(metadata,'{}'::jsonb)||jsonb_build_object('route','file_analysis','analysisJobId',$3::text,'error',$4::text),
             updated_at=NOW()
             WHERE id=$1 AND conversation_id=$2 AND role='assistant'`,
           [request.assistantMessageId, request.conversationId, job.id, 'The analysis could not resume after repeated worker interruptions.']);
