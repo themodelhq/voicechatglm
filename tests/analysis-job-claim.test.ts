@@ -53,3 +53,17 @@ describe('durable analysis worker leases', () => {
     expect(queries[0]).toContain('lease_expires_at');
   });
 });
+
+describe('atomic conversation linkage for analysis jobs', () => {
+  it('persists the job ID on the assistant message in the same transaction', async () => {
+    const queries: string[] = [];
+    const client = { query: async (sql: string) => { queries.push(sql); if (sql.includes('COUNT(*)')) return { rows: [{ count: 0 }] }; if (sql.includes('UPDATE conversation_messages')) return { rowCount: 1, rows: [{ id: 'assistant-1' }] }; return { rows: [] }; }, release: () => undefined };
+    const repository = new Repository({ connect: async () => client });
+    await repository.createAnalysisJob({ userId: 'owner-1', fileIds: ['file-1'], maxConcurrent: 2, request: { question: 'q', conversationId: 'conversation-1', assistantMessageId: 'assistant-1' } });
+    const linkIndex = queries.findIndex(query => query.includes('UPDATE conversation_messages'));
+    const commitIndex = queries.indexOf('COMMIT');
+    expect(linkIndex).toBeGreaterThan(-1);
+    expect(linkIndex).toBeLessThan(commitIndex);
+    expect(queries[linkIndex]).toContain("'analysisJobId'");
+  });
+});

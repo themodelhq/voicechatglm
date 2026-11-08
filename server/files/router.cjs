@@ -228,10 +228,6 @@ async function productionFileHandler(req, res, cfg, providerRequest) {
         maxConcurrent: policy.maxConcurrentProcessingJobsPerOwner
       });
       if (!jobId) { if (assistantMessage && conversation) await repository.updateConversationMessage({ userId: user.id, conversationId: conversation.id, id: assistantMessage.id, content: '', status: 'error', metadata: { route: 'file_analysis', error: 'Analysis capacity is temporarily full. Please retry shortly.' } }).catch(() => undefined); return safeError(res, 429, 'Analysis capacity is temporarily full. Please retry shortly.', origin, cfg); }
-      if (assistantMessage && conversation) await repository.updateConversationMessage({
-        userId: user.id, conversationId: conversation.id, id: assistantMessage.id, content: '', status: 'sending',
-        metadata: { route: 'file_analysis', fileIds: checked.value.fileIds, analysisJobId: jobId }
-      });
       return send(res, 202, { jobId, status: 'queued', ...(conversation ? { conversation_id: conversation.id } : {}),
         ...(userMessage ? { user_message_id: userMessage.id } : {}), ...(assistantMessage ? { assistant_message_id: assistantMessage.id } : {}) }, origin, cfg);
     } catch (error) {

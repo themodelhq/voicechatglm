@@ -104,6 +104,15 @@ class Repository {
         substage = 'link_file_' + (fileIds.indexOf(fileId) + 1);
         await client.query('INSERT INTO analysis_job_files (analysis_job_id, file_id) VALUES ($1,$2)', [id, fileId]);
       }
+      if (request?.conversationId && request?.assistantMessageId) {
+        substage = 'persist_job_reference_on_assistant_message';
+        const linked = await client.query(`UPDATE conversation_messages
+          SET metadata=COALESCE(metadata,'{}'::jsonb)||jsonb_build_object('analysisJobId',$3,'route','file_analysis'),
+              updated_at=NOW()
+          WHERE id=$1 AND conversation_id=$2 AND user_id=$4 AND role='assistant'
+          RETURNING id`, [request.assistantMessageId, request.conversationId, id, userId]);
+        if (linked.rowCount !== 1) throw Object.assign(new Error('The analysis job could not be linked to its conversation.'), { code: 'CONVERSATION_STORAGE' });
+      }
       substage = 'commit_transaction';
       await client.query('COMMIT');
       began = false;
