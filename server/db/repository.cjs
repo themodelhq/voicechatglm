@@ -99,7 +99,7 @@ class Repository {
         }
       }
       substage = 'insert_analysis_job';
-      await client.query("INSERT INTO analysis_jobs (id, user_id, status, request, attempts, max_attempts, started_at) VALUES ($1,$2,'processing',$3::jsonb,1,1,NOW())", [id, userId, JSON.stringify(request)]);
+      await client.query("INSERT INTO analysis_jobs (id, user_id, status, request, attempts, max_attempts, started_at) VALUES ($1,$2,'queued',$3::jsonb,0,3,NULL)", [id, userId, JSON.stringify(request)]);
       for (const fileId of fileIds) {
         substage = 'link_file_' + (fileIds.indexOf(fileId) + 1);
         await client.query('INSERT INTO analysis_job_files (analysis_job_id, file_id) VALUES ($1,$2)', [id, fileId]);
@@ -130,7 +130,50 @@ class Repository {
       }
     }
   }
-  async completeAnalysisJob({ id, status, resultStorageKey, errorCode, errorMessage }) { await this.pool.query('UPDATE analysis_jobs SET status = $2, result_storage_key = $3, error_code = $4, error_message = $5, completed_at = NOW(), updated_at = NOW() WHERE id = $1', [id, status, resultStorageKey || null, errorCode || null, errorMessage || null]); }
+  async claimAnalysisJob(workerId, leaseMs = 120000) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const selected = await client.query(`SELECT * FROM analysis_jobs
+        WHERE status = 'queued'
+           OR (status = 'processing' AND COALESCE(lease_expires_at, started_at + INTERVAL '2 minutes') < NOW())
+        ORDER BY created_at ASC
+        LIMIT 1 FOR UPDATE SKIP LOCKED`);
+      const job = selected.rows[0];
+      if (!job) { await client.query('COMMIT'); return undefined; }
+      if (Number(job.attempts || 0) >= Number(job.max_attempts || 3)) {
+        await client.query("UPDATE analysis_jobs SET status='failed',error_code='WORKER_RESTART_LIMIT',error_message='The analysis could not resume after repeated worker interruptions.',completed_at=NOW(),updated_at=NOW(),worker_id=NULL,lease_expires_at=NULL WHERE id=$1", [job.id]);
+        await client.query('COMMIT');
+        return undefined;
+      }
+      const claimed = await client.query(`UPDATE analysis_jobs SET status='processing',worker_id=$2,
+        lease_expires_at=NOW()+($3 * INTERVAL '1 millisecond'),attempts=attempts+1,
+        started_at=COALESCE(started_at,NOW()),updated_at=NOW()
+        WHERE id=$1 RETURNING *`, [job.id, workerId, leaseMs]);
+      await client.query('COMMIT');
+      return claimed.rows[0];
+    } catch (error) { await client.query('ROLLBACK').catch(() => undefined); throw error; }
+    finally { client.release(); }
+  }
+  async analysisJobFileIds(id, userId) {
+    const result = await this.pool.query('SELECT jf.file_id FROM analysis_job_files jf JOIN analysis_jobs j ON j.id=jf.analysis_job_id WHERE jf.analysis_job_id=$1 AND j.user_id=$2 ORDER BY jf.file_id', [id, userId]);
+    return result.rows.map(row => row.file_id);
+  }
+  async renewAnalysisJobLease(id, workerId, leaseMs = 120000) {
+    const result = await this.pool.query(`UPDATE analysis_jobs SET lease_expires_at=NOW()+($3 * INTERVAL '1 millisecond'),updated_at=NOW()
+      WHERE id=$1 AND worker_id=$2 AND status='processing'
+      RETURNING cancel_requested_at`, [id, workerId, leaseMs]);
+    return result.rows[0] ? { cancelRequested: Boolean(result.rows[0].cancel_requested_at) } : undefined;
+  }
+  async completeAnalysisJob({ id, status, resultStorageKey, errorCode, errorMessage, workerId }) {
+    const values = [id, status, resultStorageKey || null, errorCode || null, errorMessage || null];
+    const guard = workerId ? ' AND worker_id = $6' : '';
+    if (workerId) values.push(workerId);
+    const result = await this.pool.query(`UPDATE analysis_jobs SET status=$2,result_storage_key=$3,error_code=$4,error_message=$5,
+      completed_at=NOW(),updated_at=NOW(),worker_id=NULL,lease_expires_at=NULL
+      WHERE id=$1${guard} RETURNING id`, values);
+    return result.rowCount === 1;
+  }
   async analysisJobForOwner(userId, id) { const result = await this.pool.query('SELECT j.* FROM analysis_jobs j WHERE j.id = $1 AND j.user_id = $2 AND EXISTS (SELECT 1 FROM analysis_job_files jf JOIN files f ON f.id = jf.file_id WHERE jf.analysis_job_id = j.id AND f.deleted_at IS NULL)', [id, userId]); return result.rows[0]; }
   async requestCancelJob(userId, id) { const result = await this.pool.query("UPDATE analysis_jobs SET cancel_requested_at = NOW(), status = CASE WHEN status = 'queued' THEN 'cancelled' ELSE status END, updated_at = NOW() WHERE id = $1 AND user_id = $2 RETURNING *", [id, userId]); return result.rows[0]; }
   async cancellationRequested(userId, id) { const result = await this.pool.query('SELECT cancel_requested_at FROM analysis_jobs WHERE id = $1 AND user_id = $2', [id, userId]); return Boolean(result.rows[0]?.cancel_requested_at); }
