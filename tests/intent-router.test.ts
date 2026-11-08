@@ -12,11 +12,13 @@ describe('central deterministic intent router', () => {
   });
   it('automatically routes questions needing fresh facts to web search', () => {
     expect(classifyIntent('Did Donald Trump win the midterms?')).toMatchObject({ intent: 'web_search', currentInformation: true, searchTopic: 'news' });
+    expect(classifyIntent('What happened in the 2026 midterms?')).toMatchObject({ intent: 'web_search', currentInformation: true });
     expect(classifyIntent('Who is the current president of Nigeria?')).toMatchObject({ intent: 'web_search', currentInformation: true });
     expect(classifyIntent('What are the latest developments in the conflict?')).toMatchObject({ intent: 'web_search', currentInformation: true, searchTopic: 'news' });
     expect(classifyIntent('What is the current exchange rate for USD to NGN?')).toMatchObject({ intent: 'web_search', currentInformation: true });
     expect(classifyIntent('Explain how neural networks work.').intent).toBe('general_chat');
     expect(classifyIntent('Explain electric current in a circuit.').intent).toBe('general_chat');
+    expect(classifyIntent('Explain the current flowing through a resistor.').intent).toBe('general_chat');
   });
   it('does not silently answer time-sensitive questions from stale model knowledge when web search is unavailable', async () => {
     await expect(routeChat({ message: 'Did Donald Trump win the midterms?', request: { message: 'Did Donald Trump win the midterms?', max_new_tokens: 256 }, userId: 'owner', repository: {}, callModel: async () => ({ status: 200, body: { response: 'stale answer' } }), env: { WEB_SEARCH_ENABLED: 'false' } })).rejects.toMatchObject({ code: 'CAPABILITY_UNAVAILABLE', status: 503 });
