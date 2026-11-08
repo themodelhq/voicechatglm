@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { callHuggingFaceModel, safeDiagnosticCode, safeDiagnosticText, upstreamDiagnosticFields } from '../server/proxy-core.cjs';
+import { callHuggingFaceModel, parseGradioCompletion, safeDiagnosticCode, safeDiagnosticText, safeHuggingFaceHttpDiagnostic, upstreamDiagnosticFields } from '../server/proxy-core.cjs';
 
 describe('chat upstream diagnostics sanitization', () => {
   it('accepts stable upstream error codes and rejects unsafe values', () => {
@@ -93,5 +93,23 @@ describe('Hugging Face ZeroGPU rate-limit handling', () => {
     }, 60000);
     expect(result.status).toBe(429);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe('upstream diagnostic edge cases', () => {
+  it('redacts Authorization bearer values as a single credential', () => {
+    const result = safeHuggingFaceHttpDiagnostic(
+      { status: 403, headers: { get: () => null } },
+      JSON.stringify({ detail: 'Authorization: Bearer secret-value' }),
+      'submission'
+    );
+    expect(result.upstream_message).not.toContain('secret-value');
+  });
+
+  it('extracts nested runtime scheduler and worker messages', () => {
+    expect(() => parseGradioCompletion(
+      'event: error\\ndata: {"type":"runtime_failure","data":{"message_text":"CUDA worker allocation failed"}}\\n\\n'
+    )).toThrow(expect.objectContaining({ upstreamMessage: expect.stringContaining('CUDA worker allocation failed') }));
   });
 });
