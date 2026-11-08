@@ -18,12 +18,14 @@ describe('Hugging Face Gradio provider contract', () => {
       ['event: error\ndata: {"error":"Input exceeds maximum sequence length"}\n\n', 'UPSTREAM_INPUT_TOO_LONG'],
       ['event: error\ndata: "failed"\n\n', 'UPSTREAM_GENERATION_ERROR'],
       ['event: error\ndata: {"detail":{"exception":"CUDA device-side assert"}}\n\n', 'UPSTREAM_GPU_ERROR'],
-      ['event: error\ndata: {"error":"device-api.zero returned 429 Too Many Requests"}\n\n', 'UPSTREAM_RATE_LIMIT']
+      ['event: error\ndata: {"error":"device-api.zero returned 429 Too Many Requests"}\n\n', 'UPSTREAM_RATE_LIMIT'],
+      ['event: error\ndata: {"type":"runtime_failure","data":{"message_text":"CUDA worker allocation failed"}}\n\n', 'UPSTREAM_GPU_ERROR']
     ]) {
       try { parseGradioCompletion(event); throw new Error('Expected Gradio error event to throw.'); }
       catch (error) {
         expect(error).toMatchObject({ code: 'MODEL_UPSTREAM_ERROR', upstreamCode });
         if (upstreamCode === 'UPSTREAM_RATE_LIMIT') expect(error.upstreamMessage).toContain('429 Too Many Requests');
+        if (upstreamCode === 'UPSTREAM_GPU_ERROR') expect(error.upstreamMessage).toContain('CUDA worker allocation failed');
       }
     }
     expect(() => parseGradioCompletion('event: complete\ndata: [""]\n\n')).toThrow();
