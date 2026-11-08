@@ -169,11 +169,26 @@ async function callHuggingFaceModelOnce(env, path, init, timeout, signal) {
   if (!submitted.ok) return { status: submitted.status, body: { error: submitted.status === 429 ? 'Hugging Face inference is temporarily rate-limiting GPU scheduling.' : 'Hugging Face inference submission was rejected.' } };
   const eventId = submitBody?.event_id;
   if (typeof eventId !== 'string' || !/^[A-Za-z0-9_-]{8,160}$/.test(eventId)) throw Object.assign(new Error('Hugging Face inference did not return a valid event identifier.'), { code: 'MODEL_INVALID_RESPONSE' });
-  const result = await fetchWithTimeout(`${cfg.base}/gradio_api/call/generate/${encodeURIComponent(eventId)}`, {
-    method: 'GET', headers: { ...headers, Accept: 'text/event-stream' }
-  }, remaining(), signal);
+  // A result-polling 429 applies to this event ID. Retry the same event rather
+  // than submitting a second generation and consuming another GPU queue slot.
+  const pollDelays = [1000, 2500, 5000];
+  let result;
+  for (let pollAttempt = 0; ; pollAttempt++) {
+    result = await fetchWithTimeout(`${cfg.base}/gradio_api/call/generate/${encodeURIComponent(eventId)}`, {
+      method: 'GET', headers: { ...headers, Accept: 'text/event-stream' }
+    }, remaining(), signal);
+    if (result.status !== 429 || pollAttempt >= pollDelays.length) break;
+    const delay = pollDelays[pollAttempt];
+    if (remaining() <= delay) break;
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(done, delay);
+      function done() { signal?.removeEventListener('abort', abort); resolve(); }
+      function abort() { clearTimeout(timer); signal?.removeEventListener('abort', abort); reject(Object.assign(new Error('The model request was cancelled.'), { code: 'MODEL_CANCELLED' })); }
+      signal?.addEventListener('abort', abort, { once: true });
+    });
+  }
   const sse = await result.text();
-  if (!result.ok) return { status: result.status, body: { error: result.status === 429 ? 'Hugging Face inference is temporarily rate-limiting GPU scheduling.' : 'Hugging Face inference result retrieval failed.' } };
+  if (!result.ok) return { status: result.status, body: { error: result.status === 429 ? 'Hugging Face result polling is temporarily rate-limited.' : 'Hugging Face inference result retrieval failed.' } };
   return parseGradioCompletion(sse);
 }
 async function callHuggingFaceModel(env, path, init, timeout, signal) {
