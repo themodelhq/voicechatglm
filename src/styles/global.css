@@ -116,3 +116,11 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
 .diagnostics div { min-width: 0; }
 @media (max-width: 900px) { .settings-grid { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .scroll-to-bottom { left: 50%; bottom: 104px; }.sidebar.collapsed ~ .main-column .scroll-to-bottom { left: 50%; }.content-page { width: min(100% - 28px,1120px); padding: 28px 0 42px; }.page-heading { align-items: flex-start; flex-direction: column; gap: 10px; }.setting-row { align-items: flex-start; }.setting-row select { max-width: 48%; }.diagnostics { grid-template-columns: 1fr; }.diagnostics div,.diagnostics div:nth-child(2n),.diagnostics div:nth-last-child(-n+2) { border-right: 0; border-bottom: 1px solid var(--border); }.diagnostics div:last-child { border-bottom: 0; } }
+
+/* Chat history overflow menu: anchored, touch-friendly and keyboard reachable. */
+.row-more { z-index: 2; border-radius: 7px; background: var(--sidebar); }
+.row-menu { right: 4px; top: calc(100% - 2px); min-width: 190px; padding: 6px; border-radius: 11px; box-shadow: 0 12px 34px rgb(0 0 0 / .16); }
+.row-menu button { min-height: 34px; padding: 8px 10px; border-radius: 7px; font-size: 12px; }
+.row-menu button.danger-text { margin-top: 4px; border-top: 1px solid var(--border); border-radius: 0 0 7px 7px; padding-top: 10px; }
+@media (hover: none) { .row-more { visibility: visible; } }
+@media (max-width: 760px) { .row-menu { right: 0; top: 100%; } }
