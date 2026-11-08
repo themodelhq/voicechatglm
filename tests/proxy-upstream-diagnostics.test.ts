@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { safeDiagnosticCode, safeDiagnosticText } from '../server/proxy-core.cjs';
+import { safeDiagnosticCode, safeDiagnosticText, upstreamDiagnosticFields } from '../server/proxy-core.cjs';
 
 describe('chat upstream diagnostics sanitization', () => {
   it('accepts stable upstream error codes and rejects unsafe values', () => {
@@ -22,5 +22,24 @@ describe('chat upstream diagnostics sanitization', () => {
     expect(safeDiagnosticText('x'.repeat(700))).toHaveLength(500);
     expect(safeDiagnosticText('  ')).toBeUndefined();
     expect(safeDiagnosticText({ message: 'private' })).toBeUndefined();
+  });
+});
+
+describe('chat upstream diagnostic fields', () => {
+  it('preserves a validated upstream code and sanitised message', () => {
+    const fields = upstreamDiagnosticFields({
+      upstreamCode: 'UPSTREAM_RATE_LIMIT',
+      upstreamMessage: 'ZeroGPU scheduler rejected request. Bearer hf_secret123',
+      upstreamStatus: 429
+    });
+    expect(fields).toEqual({
+      upstream_code: 'UPSTREAM_RATE_LIMIT',
+      upstream_message: 'ZeroGPU scheduler rejected request. Bearer [REDACTED]',
+      upstream_status: 429
+    });
+  });
+
+  it('omits absent, invalid, and out-of-range upstream fields', () => {
+    expect(upstreamDiagnosticFields({ upstreamCode: 'not safe', upstreamMessage: '', upstreamStatus: 700 })).toEqual({});
   });
 });
