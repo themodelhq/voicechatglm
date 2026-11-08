@@ -63,7 +63,7 @@ describe('Hugging Face ZeroGPU rate-limit handling', () => {
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
-        text: async () => 'event: error\\ndata: {"error":"Too Many Requests from device-api.zero/schedule"}\\n\\n'
+        text: async () => 'event: error\ndata: {"error":"Too Many Requests from device-api.zero/schedule"}\n\n'
       });
     vi.stubGlobal('fetch', fetchMock);
 
