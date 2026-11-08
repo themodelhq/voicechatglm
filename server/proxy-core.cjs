@@ -134,7 +134,7 @@ function parseGradioCompletion(sse) {
   }
   throw Object.assign(new Error('Hugging Face inference did not complete its queued event.'), { code: 'MODEL_INCOMPLETE' });
 }
-async function callHuggingFaceModel(env, path, init, timeout, signal) {
+async function callHuggingFaceModelOnce(env, path, init, timeout, signal) {
   const startedAt = Date.now();
   const remaining = () => Math.max(1, timeout - (Date.now() - startedAt));
   const cfg = await huggingFaceConfig(env);
@@ -154,15 +154,38 @@ async function callHuggingFaceModel(env, path, init, timeout, signal) {
   }, remaining(), signal);
   const submitText = await submitted.text();
   let submitBody; try { submitBody = submitText ? JSON.parse(submitText) : {}; } catch { submitBody = {}; }
-  if (!submitted.ok) return { status: submitted.status, body: { error: 'Hugging Face inference submission was rejected.' } };
+  if (!submitted.ok) return { status: submitted.status, body: { error: submitted.status === 429 ? 'Hugging Face inference is temporarily rate-limiting GPU scheduling.' : 'Hugging Face inference submission was rejected.' } };
   const eventId = submitBody?.event_id;
   if (typeof eventId !== 'string' || !/^[A-Za-z0-9_-]{8,160}$/.test(eventId)) throw Object.assign(new Error('Hugging Face inference did not return a valid event identifier.'), { code: 'MODEL_INVALID_RESPONSE' });
   const result = await fetchWithTimeout(`${cfg.base}/gradio_api/call/generate/${encodeURIComponent(eventId)}`, {
     method: 'GET', headers: { ...headers, Accept: 'text/event-stream' }
   }, remaining(), signal);
   const sse = await result.text();
-  if (!result.ok) return { status: result.status, body: { error: 'Hugging Face inference result retrieval failed.' } };
+  if (!result.ok) return { status: result.status, body: { error: result.status === 429 ? 'Hugging Face inference is temporarily rate-limiting GPU scheduling.' : 'Hugging Face inference result retrieval failed.' } };
   return parseGradioCompletion(sse);
+}
+async function callHuggingFaceModel(env, path, init, timeout, signal) {
+  const startedAt = Date.now();
+  const delays = [2000, 5000];
+  for (let attempt = 0; ; attempt++) {
+    if (signal?.aborted) throw Object.assign(new Error('The model request was cancelled.'), { code: 'MODEL_CANCELLED' });
+    const remaining = timeout - (Date.now() - startedAt);
+    if (remaining <= 0) throw Object.assign(new Error('The model request timed out while waiting for inference capacity.'), { code: 'MODEL_TIMEOUT' });
+    try {
+      const result = await callHuggingFaceModelOnce(env, path, init, remaining, signal);
+      if (result?.status !== 429 || attempt >= delays.length) return result;
+    } catch (error) {
+      if (error?.upstreamCode !== 'UPSTREAM_RATE_LIMIT' || attempt >= delays.length) throw error;
+    }
+    const delay = delays[attempt];
+    if (Date.now() - startedAt + delay >= timeout) throw Object.assign(new Error('Hugging Face inference is rate-limiting GPU scheduling. Please retry shortly.'), { code: 'MODEL_UPSTREAM_ERROR', upstreamCode: 'UPSTREAM_RATE_LIMIT' });
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(done, delay);
+      function done() { signal?.removeEventListener('abort', abort); resolve(); }
+      function abort() { clearTimeout(timer); signal?.removeEventListener('abort', abort); reject(Object.assign(new Error('The model request was cancelled.'), { code: 'MODEL_CANCELLED' })); }
+      signal?.addEventListener('abort', abort, { once: true });
+    });
+  }
 }
 async function callConfiguredModel(env, path, init, timeout, signal) {
   const provider = String(env.VOICECHATGLM_PROVIDER || 'legacy').trim().toLowerCase();
