@@ -72,19 +72,19 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
           if (job.status === 'analysis_completed' || job.status === 'partially_analyzed') {
             const result = job.result;
             analysisJobs.current.delete(message.id);
-            updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id === message.id ? {
+            updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map((entry, index) => entry.id === message.id ? {
               ...entry, status: job.status === 'partially_analyzed' || result?.partial ? 'partial' : 'complete',
               content: result?.response || 'The file analysis completed, but no response text was returned.',
               sources: result?.sources || [], analysisTruncated: Boolean(result?.truncated || result?.partial), error: undefined
-            } : entry.role === 'user' && entry.attachments?.some(file => file.state === 'analyzing') ? {
+            } : index === item.messages.findIndex(candidate => candidate.id === message.id) - 1 && entry.role === 'user' && entry.attachments?.some(file => file.state === 'analyzing') ? {
               ...entry, attachments: entry.attachments.map(file => file.state === 'analyzing' ? { ...file, state: 'complete' } : file)
             } : entry) }));
           } else if (job.status === 'failed' || job.status === 'cancelled') {
             analysisJobs.current.delete(message.id);
-            updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id === message.id ? {
+            updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map((entry, index) => entry.id === message.id ? {
               ...entry, content: '', status: job.status === 'cancelled' ? 'cancelled' : 'error',
               error: job.error || (job.status === 'cancelled' ? 'The file analysis was cancelled.' : 'The file analysis could not be completed.')
-            } : entry.role === 'user' && entry.attachments?.some(file => file.state === 'analyzing') ? {
+            } : index === item.messages.findIndex(candidate => candidate.id === message.id) - 1 && entry.role === 'user' && entry.attachments?.some(file => file.state === 'analyzing') ? {
               ...entry, attachments: entry.attachments.map(file => file.state === 'analyzing' ? { ...file, state: job.status === 'cancelled' ? 'cancelled' : 'failed', error: job.error || 'File analysis failed.' } : file)
             } : entry) }));
           }
