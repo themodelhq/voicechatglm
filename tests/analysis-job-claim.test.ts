@@ -52,12 +52,15 @@ describe('durable analysis worker leases', () => {
     await expect(repository.completeAnalysisJob({
       id: 'job-1', status: 'failed', errorCode: 'MODEL_CONFIGURATION',
       errorMessage: 'The file analysis could not be completed.',
-      workerId: 'worker-1', diagnosticStage: 'model_configuration'
+      workerId: 'worker-1', diagnosticStage: 'model_analysis',
+      diagnosticDetails: { upstreamCode: 'UPSTREAM_RATE_LIMIT', upstreamMessage: 'ZeroGPU scheduler rejected the request.', upstreamStatus: 429 }
     })).resolves.toBe(true);
     expect(query).toContain("jsonb_build_object('diagnosticStage',$7::text)");
     expect(query).toContain('worker_id = $6');
     expect(values[5]).toBe('worker-1');
-    expect(values[6]).toBe('model_configuration');
+    expect(values[6]).toBe('model_analysis');
+    expect(query).toContain("jsonb_build_object('upstreamDiagnostic',$8::jsonb)");
+    expect(JSON.parse(String(values[7]))).toMatchObject({ upstreamCode: 'UPSTREAM_RATE_LIMIT', upstreamStatus: 429 });
   });
 
   it('requeues expired leases instead of failing every long-running analysis', async () => {
