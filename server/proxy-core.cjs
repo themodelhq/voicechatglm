@@ -61,6 +61,9 @@ function safeConversationTitle(message) { const clean = String(message || '').re
 function requestedArtifactFormat(message) { const value = String(message || '').toLowerCase(); const explicit = /(give|provide|export|download|deliver|create|make)\b[\s\S]{0,100}\b(pdf|docx|word document|xlsx|excel(?: workbook| sheet)?|powerpoint|pptx|zip|markdown|\.md|csv|json)\b/.test(value); if (!explicit) return undefined; if (/\b(pdf)\b/.test(value)) return 'pdf'; if (/\b(docx|word document)\b/.test(value)) return 'docx'; if (/\b(xlsx|excel(?: workbook| sheet)?)\b/.test(value)) return 'xlsx'; if (/\b(powerpoint|pptx)\b/.test(value)) return 'pptx'; if (/\b(zip)\b/.test(value)) return 'zip'; if (/\b(csv)\b/.test(value)) return 'csv'; if (/\b(json)\b/.test(value)) return 'json'; if (/\b(markdown|\.md)\b/.test(value)) return 'md'; return undefined; }
 function publicArtifactFromRecord(artifact) { return artifact && { id: artifact.id, filename: artifact.displayFilename || artifact.filename, contentType: artifact.contentType, format: artifact.format, size: artifact.size, checksum: artifact.checksum, status: artifact.status, preview: artifact.preview, createdAt: artifact.createdAt, expiresAt: artifact.expiresAt, messageId: artifact.messageId }; }
 function safeUpstreamMessage(status) { if (status === 401 || status === 403) return 'The model service rejected the request.'; if (status === 429) return 'The model service is temporarily busy. Try again shortly.'; if (status >= 500) return 'The model service is unavailable.'; return 'The model request could not be completed.'; }
+function safeDiagnosticCode(value) { return typeof value === 'string' && /^[A-Z0-9_]{1,80}$/.test(value) ? value : undefined; }
+function safeDiagnosticText(value, maximum = 500) { if (typeof value !== 'string' || !value.trim()) return undefined; return value.replace(/https?:\/\/[^\s]+/gi, '[URL]').replace(/\bBearer\s+[A-Za-z0-9._~+_\/-]+=*/gi, 'Bearer [REDACTED]').replace(/(authorization|token|secret|api[_-]?key)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[REDACTED]').replace(/[\r\n\t]+/g, ' ').slice(0, maximum); }
+function upstreamDiagnosticFields(caught) { const code = safeDiagnosticCode(caught?.upstreamCode); const message = safeDiagnosticText(caught?.upstreamMessage); const status = Number.isInteger(caught?.upstreamStatus) && caught.upstreamStatus >= 400 && caught.upstreamStatus < 600 ? caught.upstreamStatus : undefined; return { ...(code ? { upstream_code: code } : {}), ...(message ? { upstream_message: message } : {}), ...(status ? { upstream_status: status } : {}) }; }
 async function upstream(url, key, path, init, timeout, signal) { const controller = new AbortController(); const relayAbort = () => controller.abort(); signal?.addEventListener('abort', relayAbort, { once: true }); const timer = setTimeout(() => controller.abort(), timeout); try { const result = await fetch(`${url}${path}`, { ...init, signal: controller.signal, headers: { 'X-API-Key': key, Accept: 'application/json', ...(init.method === 'POST' ? { 'Content-Type': 'application/json' } : {}) } }); const raw = await result.text(); let body; try { body = raw ? JSON.parse(raw) : {}; } catch { body = {}; } return { status: result.status, body }; } finally { clearTimeout(timer); signal?.removeEventListener('abort', relayAbort); } }
 function runPodConfig(env = process.env) {
   const enabled = String(env.VOICECHATGLM_PROVIDER || '').trim().toLowerCase() === 'runpod';
@@ -247,27 +250,11 @@ async function callHuggingFaceModelOnce(env, path, init, timeout, signal) {
   return parseGradioCompletion(sse);
 }
 async function callHuggingFaceModel(env, path, init, timeout, signal) {
-  const startedAt = Date.now();
-  const delays = [2000, 5000];
-  for (let attempt = 0; ; attempt++) {
-    if (signal?.aborted) throw Object.assign(new Error('The model request was cancelled.'), { code: 'MODEL_CANCELLED' });
-    const remaining = timeout - (Date.now() - startedAt);
-    if (remaining <= 0) throw Object.assign(new Error('The model request timed out while waiting for inference capacity.'), { code: 'MODEL_TIMEOUT' });
-    try {
-      const result = await callHuggingFaceModelOnce(env, path, init, remaining, signal);
-      if (result?.status !== 429 || attempt >= delays.length) return result;
-    } catch (error) {
-      if (error?.upstreamCode !== 'UPSTREAM_RATE_LIMIT' || attempt >= delays.length) throw error;
-    }
-    const delay = delays[attempt];
-    if (Date.now() - startedAt + delay >= timeout) throw Object.assign(new Error('Hugging Face inference is rate-limiting GPU scheduling. Please retry shortly.'), { code: 'MODEL_UPSTREAM_ERROR', upstreamCode: 'UPSTREAM_RATE_LIMIT' });
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(done, delay);
-      function done() { signal?.removeEventListener('abort', abort); resolve(); }
-      function abort() { clearTimeout(timer); signal?.removeEventListener('abort', abort); reject(Object.assign(new Error('The model request was cancelled.'), { code: 'MODEL_CANCELLED' })); }
-      signal?.addEventListener('abort', abort, { once: true });
-    });
-  }
+  if (signal?.aborted) throw Object.assign(new Error('The model request was cancelled.'), { code: 'MODEL_CANCELLED' });
+  // A 429 is a scheduler/rate-limit rejection, not a transient generation failure.
+  // Polling already retries the same event ID; resubmitting here creates new GPU
+  // scheduling attempts and can worsen quota/run-limit pressure.
+  return callHuggingFaceModelOnce(env, path, init, timeout, signal);
 }
 async function callConfiguredModel(env, path, init, timeout, signal) {
   const provider = String(env.VOICECHATGLM_PROVIDER || 'legacy').trim().toLowerCase();
@@ -366,7 +353,8 @@ async function execute(route, method, body, meta = {}, env = process.env) { cons
       const rawErrorMessage = typeof caught?.message === 'string' ? caught.message : '';
       const safeErrorMessage = rawErrorMessage.replace(/https?:\/\/[^\s]+/gi, '[URL]').replace(/(authorization|token|secret|api[_-]?key)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[REDACTED]').replace(/[\r\n\t]+/g, ' ').slice(0, 240);
       const stackFrames = typeof caught?.stack === 'string' ? caught.stack.split('\n').slice(1, 5).map(line => line.trim().slice(0, 240)) : undefined;
-      const diagnostic = { code: String(code || 'REQUEST_FAILED').slice(0, 80), ...(errorName ? { error_name: errorName } : {}), ...(causeCode ? { cause_code: causeCode } : {}), ...(safeErrorMessage ? { error_message: safeErrorMessage } : {}), ...(failedSources?.length ? { failed_sources: failedSources } : {}) };
+      const upstreamFields = upstreamDiagnosticFields(caught);
+      const diagnostic = { code: String(code || 'REQUEST_FAILED').slice(0, 80), ...(errorName ? { error_name: errorName } : {}), ...(causeCode ? { cause_code: causeCode } : {}), ...(safeErrorMessage ? { error_message: safeErrorMessage } : {}), ...upstreamFields, ...(failedSources?.length ? { failed_sources: failedSources } : {}) };
       if (!code) console.error('[VoiceChatGLM] Unclassified chat failure', { errorName: errorName || 'Error', causeCode: causeCode || undefined, errorMessage: safeErrorMessage || undefined, stackFrames, status: Number.isInteger(status) ? status : undefined });
       return response(Number.isInteger(status) && status >= 400 && status < 600 ? status : code === 'CANCELLED' ? 499 : 502, { error: message, diagnostic }, origin, cfg, caught?.retryAfter ? { 'Retry-After': String(Math.max(1, caught.retryAfter)) } : undefined);
     } finally { await reservation.release?.(); }
@@ -396,4 +384,4 @@ async function nodeHandler(req, res, context = {}) {
   finally { req.removeListener('aborted', abort); res.removeListener('close', responseClosed); }
   if (res.destroyed || res.writableEnded) return; res.writeHead(output.statusCode, output.headers); res.end(output.body);
 }
-module.exports = { MAX_BODY_BYTES, validateChat, execute, executePublicApi, nodeHandler, config, startupConfigurationErrors, nodeRateLimitKey, trustedProxyPeer, validIp, resetRateLimitForTests: resetLimiter, securityHeaders, publicApiResponse, runPodConfig, callConfiguredModel, parseGradioCompletion, safeHuggingFaceHttpDiagnostic };
+module.exports = { MAX_BODY_BYTES, validateChat, execute, executePublicApi, nodeHandler, config, startupConfigurationErrors, nodeRateLimitKey, trustedProxyPeer, validIp, resetRateLimitForTests: resetLimiter, securityHeaders, publicApiResponse, runPodConfig, callConfiguredModel, callHuggingFaceModel, parseGradioCompletion, safeHuggingFaceHttpDiagnostic, safeDiagnosticCode, safeDiagnosticText, upstreamDiagnosticFields };
