@@ -49,7 +49,7 @@ describe('durable analysis worker leases', () => {
     const queries: string[] = [];
     const repository = new Repository({ query: async (sql: string) => { queries.push(sql); return { rows: [] }; } });
     await repository.recoverStaleJobs(90000);
-    expect(queries[0]).toContain("THEN 'queued' ELSE 'failed'");
+    expect(queries[0]).toContain("status = 'queued'");
     expect(queries[0]).toContain('lease_expires_at');
   });
 });

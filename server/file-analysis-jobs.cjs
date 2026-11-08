@@ -26,6 +26,8 @@ async function processJob(job) {
 
   const controller = new AbortController();
   let heartbeatBusy = false;
+  const initialLease = await repository.renewAnalysisJobLease(job.id, WORKER_ID, LEASE_MS);
+  if (!initialLease || initialLease.cancelRequested) controller.abort(Object.assign(new Error('Analysis was cancelled.'), { code: 'CANCELLED' }));
   const heartbeat = setInterval(async () => {
     if (heartbeatBusy) return;
     heartbeatBusy = true;

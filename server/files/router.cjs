@@ -215,10 +215,10 @@ async function productionFileHandler(req, res, cfg, providerRequest) {
         if (!userMessage || !assistantMessage) throw Object.assign(new Error('Conversation messages could not be persisted.'), { code: 'CONVERSATION_STORAGE' });
       }
       analysisStage = 'check_analysis_capacity';
-      if (await repository.activeAnalysisJobsForUser(user.id) >= policy.maxConcurrentProcessingJobsPerOwner) return safeError(res, 429, 'Analysis capacity is temporarily full. Please retry shortly.', origin, cfg);
+      if (await repository.activeAnalysisJobsForUser(user.id) >= policy.maxConcurrentProcessingJobsPerOwner) { if (assistantMessage && conversation) await repository.updateConversationMessage({ userId: user.id, conversationId: conversation.id, id: assistantMessage.id, content: '', status: 'error', metadata: { route: 'file_analysis', error: 'Analysis capacity is temporarily full. Please retry shortly.' } }).catch(() => undefined); return safeError(res, 429, 'Analysis capacity is temporarily full. Please retry shortly.', origin, cfg); }
       analysisStage = 'load_file_metadata';
       const files = await repository.filesForOwner(user.id, checked.value.fileIds);
-      if (files.length !== checked.value.fileIds.length) return safeError(res, 404, 'One or more selected files were not found or unavailable.', origin, cfg);
+      if (files.length !== checked.value.fileIds.length) { if (assistantMessage && conversation) await repository.updateConversationMessage({ userId: user.id, conversationId: conversation.id, id: assistantMessage.id, content: '', status: 'error', metadata: { route: 'file_analysis', error: 'One or more selected files were not found or unavailable.' } }).catch(() => undefined); return safeError(res, 404, 'One or more selected files were not found or unavailable.', origin, cfg); }
       analysisStage = 'create_analysis_job';
       jobId = await repository.createAnalysisJob({
         userId: user.id, fileIds: files.map(file => file.id),
