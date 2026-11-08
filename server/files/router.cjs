@@ -117,7 +117,7 @@ function productionError(res, error, origin, cfg) {
     return send(res, status, {
       error: message,
       request_id: requestId,
-      diagnostic: { code: diagnosticCode, type: errorName, ...(typeof error?.analysisStage === 'string' ? { stage: error.analysisStage } : {}), ...(typeof error?.analysisSubstage === 'string' ? { substage: error.analysisSubstage } : {}), ...(typeof error?.upstreamCode === 'string' && /^[A-Z0-9_]{1,64}$/.test(error.upstreamCode) ? { upstream_code: error.upstreamCode } : {}), ...(typeof error?.upstreamMessage === 'string' && error.upstreamMessage ? { upstream_message: error.upstreamMessage.slice(0, 500) } : {}), ...storageDiagnostic }
+      diagnostic: { code: diagnosticCode, type: errorName, ...(typeof error?.analysisStage === 'string' ? { stage: error.analysisStage } : {}), ...(typeof error?.analysisSubstage === 'string' ? { substage: error.analysisSubstage } : {}), ...(typeof error?.upstreamCode === 'string' && /^[A-Z0-9_]{1,64}$/.test(error.upstreamCode) ? { upstream_code: error.upstreamCode } : {}), ...(typeof error?.upstreamMessage === 'string' && error.upstreamMessage ? { upstream_message: error.upstreamMessage.slice(0, 500) } : {}), ...(Number.isInteger(error?.upstreamStatus) ? { upstream_status: error.upstreamStatus } : {}), ...(typeof error?.upstreamRequestId === 'string' ? { upstream_request_id: error.upstreamRequestId } : {}), ...(typeof error?.upstreamRetryAfter === 'string' ? { upstream_retry_after: error.upstreamRetryAfter } : {}), ...storageDiagnostic }
     }, origin, cfg);
   }
   safeError(res, status, message, origin, cfg);
