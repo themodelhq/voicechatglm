@@ -21,7 +21,10 @@ describe('Hugging Face Gradio provider contract', () => {
       ['event: error\ndata: {"error":"device-api.zero returned 429 Too Many Requests"}\n\n', 'UPSTREAM_RATE_LIMIT']
     ]) {
       try { parseGradioCompletion(event); throw new Error('Expected Gradio error event to throw.'); }
-      catch (error) { expect(error).toMatchObject({ code: 'MODEL_UPSTREAM_ERROR', upstreamCode }); }
+      catch (error) {
+        expect(error).toMatchObject({ code: 'MODEL_UPSTREAM_ERROR', upstreamCode });
+        if (upstreamCode === 'UPSTREAM_RATE_LIMIT') expect(error.upstreamMessage).toContain('429 Too Many Requests');
+      }
     }
     expect(() => parseGradioCompletion('event: complete\ndata: [""]\n\n')).toThrow();
     expect(() => parseGradioCompletion('event: heartbeat\ndata: {}\n\n')).toThrow();
