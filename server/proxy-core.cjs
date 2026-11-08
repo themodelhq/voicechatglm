@@ -151,6 +151,42 @@ function parseGradioCompletion(sse) {
   }
   throw Object.assign(new Error('Hugging Face inference did not complete its queued event.'), { code: 'MODEL_INCOMPLETE' });
 }
+function safeHuggingFaceHttpDiagnostic(response, raw, stage) {
+  let parsed;
+  try { parsed = raw ? JSON.parse(raw) : {}; } catch { parsed = {}; }
+  const collect = (value, depth = 0) => {
+    if (depth > 4 || value == null) return [];
+    if (typeof value === 'string') return [value];
+    if (Array.isArray(value)) return value.flatMap(item => collect(item, depth + 1));
+    if (typeof value === 'object') return Object.entries(value)
+      .filter(([key]) => /error|message|detail|reason|exception|status/i.test(key))
+      .flatMap(([, item]) => collect(item, depth + 1));
+    return [];
+  };
+  const rawMessage = collect(parsed).join(' ') || (typeof raw === 'string' && !/^\s*</.test(raw) ? raw : '');
+  const safeMessage = rawMessage
+    .replace(/https?:\/\/[^\s]+/gi, '[URL]')
+    .replace(/(authorization|token|secret|api[_-]?key)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[REDACTED]')
+    .replace(/[\r\n\t]+/g, ' ').slice(0, 500);
+  const status = response.status;
+  const upstreamCode = status === 429 ? 'UPSTREAM_RATE_LIMIT'
+    : status === 401 || status === 403 ? 'UPSTREAM_AUTH_ERROR'
+    : status === 408 || status === 504 ? 'UPSTREAM_TIMEOUT'
+    : status >= 500 ? 'UPSTREAM_HTTP_ERROR'
+    : 'UPSTREAM_REQUEST_REJECTED';
+  const requestId = response.headers?.get?.('x-request-id') || response.headers?.get?.('x-amzn-trace-id') || undefined;
+  const retryAfter = response.headers?.get?.('retry-after') || undefined;
+  return {
+    error: stage === 'submission'
+      ? (status === 429 ? 'Hugging Face inference submission was rate-limited.' : 'Hugging Face inference submission was rejected.')
+      : (status === 429 ? 'Hugging Face inference result polling was rate-limited.' : 'Hugging Face inference result retrieval failed.'),
+    upstream_code: upstreamCode,
+    upstream_message: safeMessage || `Hugging Face returned HTTP ${status} during ${stage}.`,
+    upstream_status: status,
+    ...(requestId && /^[A-Za-z0-9._:-]{1,120}$/.test(requestId) ? { upstream_request_id: requestId } : {}),
+    ...(retryAfter && /^[0-9]{1,6}$/.test(retryAfter) ? { upstream_retry_after: retryAfter } : {})
+  };
+}
 async function callHuggingFaceModelOnce(env, path, init, timeout, signal) {
   const startedAt = Date.now();
   const remaining = () => Math.max(1, timeout - (Date.now() - startedAt));
@@ -171,7 +207,7 @@ async function callHuggingFaceModelOnce(env, path, init, timeout, signal) {
   }, remaining(), signal);
   const submitText = await submitted.text();
   let submitBody; try { submitBody = submitText ? JSON.parse(submitText) : {}; } catch { submitBody = {}; }
-  if (!submitted.ok) return { status: submitted.status, body: { error: submitted.status === 429 ? 'Hugging Face inference is temporarily rate-limiting GPU scheduling.' : 'Hugging Face inference submission was rejected.' } };
+  if (!submitted.ok) return { status: submitted.status, body: safeHuggingFaceHttpDiagnostic(submitted, submitText, 'submission') };
   const eventId = submitBody?.event_id;
   if (typeof eventId !== 'string' || !/^[A-Za-z0-9_-]{8,160}$/.test(eventId)) throw Object.assign(new Error('Hugging Face inference did not return a valid event identifier.'), { code: 'MODEL_INVALID_RESPONSE' });
   // A result-polling 429 applies to this event ID. Retry the same event rather
@@ -193,7 +229,7 @@ async function callHuggingFaceModelOnce(env, path, init, timeout, signal) {
     });
   }
   const sse = await result.text();
-  if (!result.ok) return { status: result.status, body: { error: result.status === 429 ? 'Hugging Face result polling is temporarily rate-limited.' : 'Hugging Face inference result retrieval failed.' } };
+  if (!result.ok) return { status: result.status, body: safeHuggingFaceHttpDiagnostic(result, sse, 'polling') };
   return parseGradioCompletion(sse);
 }
 async function callHuggingFaceModel(env, path, init, timeout, signal) {
@@ -346,4 +382,4 @@ async function nodeHandler(req, res, context = {}) {
   finally { req.removeListener('aborted', abort); res.removeListener('close', responseClosed); }
   if (res.destroyed || res.writableEnded) return; res.writeHead(output.statusCode, output.headers); res.end(output.body);
 }
-module.exports = { MAX_BODY_BYTES, validateChat, execute, executePublicApi, nodeHandler, config, startupConfigurationErrors, nodeRateLimitKey, trustedProxyPeer, validIp, resetRateLimitForTests: resetLimiter, securityHeaders, publicApiResponse, runPodConfig, callConfiguredModel, parseGradioCompletion };
+module.exports = { MAX_BODY_BYTES, validateChat, execute, executePublicApi, nodeHandler, config, startupConfigurationErrors, nodeRateLimitKey, trustedProxyPeer, validIp, resetRateLimitForTests: resetLimiter, securityHeaders, publicApiResponse, runPodConfig, callConfiguredModel, parseGradioCompletion, safeHuggingFaceHttpDiagnostic };
