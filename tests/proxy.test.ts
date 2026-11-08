@@ -27,7 +27,7 @@ describe('Hugging Face Gradio provider contract', () => {
         expect(error).toMatchObject({ code: 'MODEL_UPSTREAM_ERROR', upstreamCode });
         if (upstreamCode === 'UPSTREAM_RATE_LIMIT') expect(error.upstreamMessage).toContain('429 Too Many Requests');
         if (event.includes('data: null')) expect(error.upstreamMessage).toContain('without a usable data payload');
-        if (upstreamCode === 'UPSTREAM_GPU_ERROR') expect(error.upstreamMessage).toContain('CUDA worker allocation failed');
+        if (event.includes('runtime_failure')) expect(error.upstreamMessage).toContain('CUDA worker allocation failed');
       }
     }
     expect(() => parseGradioCompletion('event: complete\ndata: [""]\n\n')).toThrow();
