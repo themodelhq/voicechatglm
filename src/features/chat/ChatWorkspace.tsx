@@ -166,6 +166,7 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
   const changeDraft = (value: string) => { setDraft(value); saveDraft(draftKey, value); };
   const patchConversation = (targetId: string, pendingId: string, update: (message: Message) => Message) => updateConversations(items => items.map(item => item.id !== targetId ? item : { ...item, updatedAt: new Date().toISOString(), messages: item.messages.map(message => message.id === pendingId ? update(message) : message) }));
   const finishAttachmentState = (targetId: string, stateName: AttachmentReference['state'], attachmentError?: string) => updateConversations(items => items.map(item => item.id !== targetId ? item : { ...item, messages: item.messages.map(message => message.role === 'user' && message.attachments?.some(attachment => attachment.state === 'analyzing') ? { ...message, attachments: message.attachments.map(attachment => ({ ...attachment, state: stateName, ...(attachmentError ? { error: attachmentError } : {}) })) } : message) }));
+  const isAnalysisJobAccepted = (value: FileAnalysisSubmission): value is AnalysisJobAccepted => 'accepted' in value && value.accepted === true;
   const requestAssistant = async (targetId: string, message: string, pendingId: string, userMessageId: string, messageAttachments?: AttachmentReference[]) => {
     const controller = new AbortController(); requests.current.set(pendingId, controller);
     try {
@@ -173,7 +174,7 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
       if (fileIds.length) {
         const accepted = await analyzeFiles(fileIds, message, targetId, systemPrompt, controller.signal, { clientMessageId: userMessageId, assistantMessageId: pendingId });
         if (!mounted.current || controller.signal.aborted) return;
-        if ('accepted' in accepted && accepted.accepted) {
+        if (isAnalysisJobAccepted(accepted)) {
           analysisJobs.current.set(pendingId, accepted.jobId);
           patchConversation(targetId, pendingId, entry => ({ ...entry, analysisJobId: accepted.jobId, status: 'sending' }));
           // The status effect owns polling and also resumes jobs restored from PostgreSQL after a refresh.
