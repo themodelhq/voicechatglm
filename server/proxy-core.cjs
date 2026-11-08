@@ -89,7 +89,7 @@ async function fetchWithTimeout(url, init, timeout, signal) {
   try { return await fetch(url, { ...init, signal: controller.signal }); }
   finally { clearTimeout(timer); signal?.removeEventListener('abort', relayAbort); }
 }
-async function huggingFaceConfig(env) {
+function huggingFaceConfig(env) {
   const raw = typeof env.VOICECHATGLM_API_URL === 'string' ? env.VOICECHATGLM_API_URL.trim() : '';
   const apiKey = typeof env.VOICECHATGLM_API_KEY === 'string' ? env.VOICECHATGLM_API_KEY.trim() : '';
   const hfToken = typeof env.HF_TOKEN === 'string' ? env.HF_TOKEN.trim() : '';
@@ -119,7 +119,7 @@ function parseGradioCompletion(sse) {
               if (typeof value === 'string') return [value];
               if (Array.isArray(value)) return value.flatMap(item => collect(item, depth + 1));
               if (typeof value === 'object') return Object.entries(value)
-                .filter(([key]) => /error|message|detail|reason|exception|traceback|status/i.test(key))
+                .filter(([key]) => /error|message|detail|reason|exception|traceback|status|data|runtime/i.test(key))
                 .flatMap(([, item]) => collect(item, depth + 1));
               return [];
             };
