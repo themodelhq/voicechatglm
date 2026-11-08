@@ -4,7 +4,7 @@ import { Button, Brand, EmptyState, Icon, StatusBadge } from '../../components/u
 import { ConversationShareDialog } from './ConversationShareDialog';
 import { useWorkspace } from '../../app/WorkspaceContext';
 import type { Agent, ArtifactReference, AttachmentReference, Message } from '../../types/domain';
-import { analyzeFiles, ApiError, artifactDownloadUrl, deleteFile, listConversationShares, resubmitConversationMessage, revokeConversationShare, sendChat, setConversationMessageFeedback, advanceScrapeJob, getArtifact, type ShareLink, uploadFiles } from '../../services/api/client';
+import { analyzeFiles, getAnalysisJob, cancelAnalysisJob, ApiError, artifactDownloadUrl, deleteFile, listConversationShares, resubmitConversationMessage, revokeConversationShare, sendChat, setConversationMessageFeedback, advanceScrapeJob, getArtifact, type ShareLink, uploadFiles } from '../../services/api/client';
 import { formatTime, id, titleFromMessage } from '../../utils/format';
 
 const MAX_MESSAGE_LENGTH = 12_000;
@@ -34,6 +34,7 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
   const [shareOpen, setShareOpen] = useState(false);
   const uploads = useRef(new Map<string, AbortController>());
   const requests = useRef(new Map<string, AbortController>());
+  const analysisJobs = useRef(new Map<string, string>());
   const mounted = useRef(true);
   const box = useRef<HTMLTextAreaElement>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -43,6 +44,9 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
   const pendingJobsRef = useRef(pendingJobs);
   pendingJobsRef.current = pendingJobs;
   const hasPendingJobs = pendingJobs.length > 0;
+  const pendingAnalysisJobs = (conversation?.messages || []).filter(message => message.analysisJobId && message.status === 'sending');
+  const pendingAnalysisJobsRef = useRef(pendingAnalysisJobs);
+  pendingAnalysisJobsRef.current = pendingAnalysisJobs;
 
   useEffect(() => { setDraft(state.drafts[draftKey] ?? ''); setAttachments([]); setComposerError(undefined); }, [draftKey]);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; uploads.current.forEach(controller => controller.abort()); requests.current.forEach(controller => controller.abort()); uploads.current.clear(); requests.current.clear(); }; }, []);
@@ -55,6 +59,39 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
   useEffect(() => {
     if (!showScrollToBottom) window.requestAnimationFrame(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: state.preferences.reduceMotion ? 'auto' : 'smooth' }));
   }, [conversation?.messages.length, sending, showScrollToBottom, state.preferences.reduceMotion]);
+  useEffect(() => {
+    if (!pendingAnalysisJobs.length) return;
+    let active = true, checking = false, timer: number | undefined;
+    const poll = async () => {
+      if (!active || checking) return;
+      checking = true;
+      try {
+        for (const message of pendingAnalysisJobsRef.current) {
+          const job = await getAnalysisJob(message.analysisJobId!);
+          if (!active) return;
+          if (job.status === 'analysis_completed' || job.status === 'partially_analyzed') {
+            const result = job.result;
+            updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id !== message.id ? entry : {
+              ...entry, status: job.status === 'partially_analyzed' || result?.partial ? 'partial' : 'complete',
+              content: result?.response || 'The file analysis completed, but no response text was returned.',
+              sources: result?.sources || [], analysisTruncated: Boolean(result?.truncated || result?.partial), error: undefined
+            }) }));
+          } else if (job.status === 'failed' || job.status === 'cancelled') {
+            updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id !== message.id ? entry : {
+              ...entry, content: '', status: job.status === 'cancelled' ? 'cancelled' : 'error',
+              error: job.error || (job.status === 'cancelled' ? 'The file analysis was cancelled.' : 'The file analysis could not be completed.')
+            }) }));
+          }
+        }
+      } catch { /* Retry status reads; the durable job remains available in PostgreSQL. */ }
+      finally {
+        checking = false;
+        if (active && pendingAnalysisJobsRef.current.length) timer = window.setTimeout(() => { void poll(); }, 1500);
+      }
+    };
+    void poll();
+    return () => { active = false; if (timer !== undefined) window.clearTimeout(timer); };
+  }, [conversationId, pendingAnalysisJobs.length, updateConversations]);
   useEffect(() => {
     if (!hasPendingJobs) return;
     let active = true, checking = false, timer: number | undefined;
@@ -128,9 +165,15 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
     try {
       const fileIds = messageAttachments?.filter(attachment => attachment.fileId).map(attachment => attachment.fileId!) ?? [];
       if (fileIds.length) {
-        const result = await analyzeFiles(fileIds, message, targetId, systemPrompt, controller.signal, { clientMessageId: userMessageId, assistantMessageId: pendingId });
+        const accepted = await analyzeFiles(fileIds, message, targetId, systemPrompt, controller.signal, { clientMessageId: userMessageId, assistantMessageId: pendingId });
         if (!mounted.current || controller.signal.aborted) return;
-        patchConversation(targetId, pendingId, entry => ({ ...entry, ...(result.assistant_message_id ? { id: result.assistant_message_id } : {}), content: result.response, status: result.partial ? 'partial' : 'complete', error: undefined, sources: result.sources, analysisTruncated: result.truncated || Boolean(result.partial) }));
+        if (accepted.jobId) {
+          analysisJobs.current.set(pendingId, accepted.jobId);
+          patchConversation(targetId, pendingId, entry => ({ ...entry, analysisJobId: accepted.jobId, status: 'sending' }));
+          // The status effect owns polling and also resumes jobs restored from PostgreSQL after a refresh.
+          return;
+        }
+        patchConversation(targetId, pendingId, entry => ({ ...entry, ...(accepted.assistant_message_id ? { id: accepted.assistant_message_id } : {}), content: accepted.response, status: accepted.partial ? 'partial' : 'complete', error: undefined, sources: accepted.sources, analysisTruncated: accepted.truncated || Boolean(accepted.partial) }));
         finishAttachmentState(targetId, 'complete');
       } else {
         const result = await sendChat({ message, conversation_id: targetId, client_message_id: userMessageId, assistant_message_id: pendingId, idempotency_key: userMessageId, max_new_tokens: agent?.maxNewTokens ?? 768, ...(systemPrompt ? { system_prompt: systemPrompt } : {}) }, controller.signal);
@@ -142,7 +185,7 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
       const friendly = error instanceof ApiError ? error.message : 'The model request failed. Try again.';
       patchConversation(targetId, pendingId, entry => ({ ...entry, content: '', status: 'error', error: friendly }));
       if (messageAttachments?.length) { const expired = error instanceof ApiError && error.status === 404; finishAttachmentState(targetId, expired ? 'failed' : 'ready', expired ? 'The staged attachment expired or was deleted. Attach it again to retry.' : undefined); if (expired) setAttachments(current => current.map(attachment => messageAttachments.some(sent => sent.fileId && sent.fileId === attachment.fileId) ? { ...attachment, state: 'failed', error: 'The staged archive expired or was deleted. Attach it again to retry.' } : attachment)); }
-    } finally { requests.current.delete(pendingId); if (mounted.current) setSending(false); }
+    } finally { requests.current.delete(pendingId); analysisJobs.current.delete(pendingId); if (mounted.current) setSending(false); }
   };
   const submit = () => {
     const ready = attachments.filter(attachment => (attachment.state === 'ready' || attachment.state === 'partial') && attachment.analysisAvailable && attachment.fileId);
@@ -166,7 +209,7 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
     if (!conversation || sending) return; const position = conversation.messages.findIndex(message => message.id === failure.id); const user = [...conversation.messages.slice(0, position)].reverse().find(message => message.role === 'user'); if (!user) return;
     updateConversations(items => items.map(item => item.id !== conversation.id ? item : { ...item, updatedAt: new Date().toISOString(), messages: item.messages.map(message => message.id === failure.id ? { ...message, status: 'sending', error: undefined, content: '' } : message) })); setSending(true); void requestAssistant(conversation.id, user.content, failure.id, user.id, user.attachments);
   };
-  const cancelCurrent = () => { const pending = new Set(requests.current.keys()); requests.current.forEach(controller => controller.abort()); requests.current.clear(); if (pending.size) updateConversations(items => items.map(item => ({ ...item, messages: item.messages.map(message => pending.has(message.id) && message.status === 'sending' ? { ...message, content: '', status: 'cancelled', error: 'The request was cancelled.' } : message) }))); setSending(false); };
+  const cancelCurrent = () => { const pending = new Set(requests.current.keys()); analysisJobs.current.forEach(jobId => { void cancelAnalysisJob(jobId).catch(() => undefined); }); analysisJobs.current.clear(); requests.current.forEach(controller => controller.abort()); requests.current.clear(); if (pending.size) updateConversations(items => items.map(item => ({ ...item, messages: item.messages.map(message => pending.has(message.id) && message.status === 'sending' ? { ...message, content: '', status: 'cancelled', error: 'The request was cancelled.' } : message) }))); setSending(false); };
   const regenerate = (message: Message) => {
     if (!conversation || sending || message.sources?.length) return; const position = conversation.messages.findIndex(entry => entry.id === message.id); const user = [...conversation.messages.slice(0, position)].reverse().find(entry => entry.role === 'user'); if (!user) return;
     updateConversations(items => items.map(item => item.id !== conversation.id ? item : { ...item, updatedAt: new Date().toISOString(), messages: item.messages.map(entry => entry.id === message.id ? { ...entry, status: 'sending', content: '' } : entry) })); setSending(true); void requestAssistant(conversation.id, user.content, message.id, user.id, user.attachments);

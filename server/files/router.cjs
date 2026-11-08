@@ -227,7 +227,7 @@ async function productionFileHandler(req, res, cfg, providerRequest) {
           agentInstructions: checked.value.agentInstructions || null, maxNewTokens: checked.value.maxNewTokens || 768 },
         maxConcurrent: policy.maxConcurrentProcessingJobsPerOwner
       });
-      if (!jobId) return safeError(res, 429, 'Analysis capacity is temporarily full. Please retry shortly.', origin, cfg);
+      if (!jobId) { if (assistantMessage && conversation) await repository.updateConversationMessage({ userId: user.id, conversationId: conversation.id, id: assistantMessage.id, content: '', status: 'error', metadata: { route: 'file_analysis', error: 'Analysis capacity is temporarily full. Please retry shortly.' } }).catch(() => undefined); return safeError(res, 429, 'Analysis capacity is temporarily full. Please retry shortly.', origin, cfg); }
       if (assistantMessage && conversation) await repository.updateConversationMessage({
         userId: user.id, conversationId: conversation.id, id: assistantMessage.id, content: '', status: 'sending',
         metadata: { route: 'file_analysis', fileIds: checked.value.fileIds, analysisJobId: jobId }
@@ -293,7 +293,7 @@ async function productionFileHandler(req, res, cfg, providerRequest) {
         if (job.result_storage_key && ['analysis_completed', 'partially_analyzed'].includes(job.status)) {
           result = await store.getJson(job.result_storage_key, policy.maxAnalysisCharacters * Math.max(1, policy.maxFilesPerMessage) * 4);
         }
-        return send(res, 200, { jobId: job.id, status: job.status, ...(result ? { result } : {}), ...(job.status === 'failed' ? { error: 'Analysis failed.' } : {}) }, origin, cfg);
+        return send(res, 200, { jobId: job.id, status: job.status, ...(result ? { result } : {}), ...(['failed', 'cancelled'].includes(job.status) ? { error: job.error_message || (job.status === 'cancelled' ? 'Analysis was cancelled.' : 'Analysis failed.') } : {}) }, origin, cfg);
       }
     } catch {
       return safeError(res, 503, 'Analysis result is temporarily unavailable.', origin, cfg);
