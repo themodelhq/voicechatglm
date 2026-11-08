@@ -250,27 +250,11 @@ async function callHuggingFaceModelOnce(env, path, init, timeout, signal) {
   return parseGradioCompletion(sse);
 }
 async function callHuggingFaceModel(env, path, init, timeout, signal) {
-  const startedAt = Date.now();
-  const delays = [2000, 5000];
-  for (let attempt = 0; ; attempt++) {
-    if (signal?.aborted) throw Object.assign(new Error('The model request was cancelled.'), { code: 'MODEL_CANCELLED' });
-    const remaining = timeout - (Date.now() - startedAt);
-    if (remaining <= 0) throw Object.assign(new Error('The model request timed out while waiting for inference capacity.'), { code: 'MODEL_TIMEOUT' });
-    try {
-      const result = await callHuggingFaceModelOnce(env, path, init, remaining, signal);
-      if (result?.status !== 429 || attempt >= delays.length) return result;
-    } catch (error) {
-      if (error?.upstreamCode !== 'UPSTREAM_RATE_LIMIT' || attempt >= delays.length) throw error;
-    }
-    const delay = delays[attempt];
-    if (Date.now() - startedAt + delay >= timeout) throw Object.assign(new Error('Hugging Face inference is rate-limiting GPU scheduling. Please retry shortly.'), { code: 'MODEL_UPSTREAM_ERROR', upstreamCode: 'UPSTREAM_RATE_LIMIT' });
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(done, delay);
-      function done() { signal?.removeEventListener('abort', abort); resolve(); }
-      function abort() { clearTimeout(timer); signal?.removeEventListener('abort', abort); reject(Object.assign(new Error('The model request was cancelled.'), { code: 'MODEL_CANCELLED' })); }
-      signal?.addEventListener('abort', abort, { once: true });
-    });
-  }
+  if (signal?.aborted) throw Object.assign(new Error('The model request was cancelled.'), { code: 'MODEL_CANCELLED' });
+  // A 429 is a scheduler/rate-limit rejection, not a transient generation failure.
+  // Polling already retries the same event ID; resubmitting here creates new GPU
+  // scheduling attempts and can worsen quota/run-limit pressure.
+  return callHuggingFaceModelOnce(env, path, init, timeout, signal);
 }
 async function callConfiguredModel(env, path, init, timeout, signal) {
   const provider = String(env.VOICECHATGLM_PROVIDER || 'legacy').trim().toLowerCase();
@@ -400,4 +384,4 @@ async function nodeHandler(req, res, context = {}) {
   finally { req.removeListener('aborted', abort); res.removeListener('close', responseClosed); }
   if (res.destroyed || res.writableEnded) return; res.writeHead(output.statusCode, output.headers); res.end(output.body);
 }
-module.exports = { MAX_BODY_BYTES, validateChat, execute, executePublicApi, nodeHandler, config, startupConfigurationErrors, nodeRateLimitKey, trustedProxyPeer, validIp, resetRateLimitForTests: resetLimiter, securityHeaders, publicApiResponse, runPodConfig, callConfiguredModel, parseGradioCompletion, safeHuggingFaceHttpDiagnostic, safeDiagnosticCode, safeDiagnosticText, upstreamDiagnosticFields };
+module.exports = { MAX_BODY_BYTES, validateChat, execute, executePublicApi, nodeHandler, config, startupConfigurationErrors, nodeRateLimitKey, trustedProxyPeer, validIp, resetRateLimitForTests: resetLimiter, securityHeaders, publicApiResponse, runPodConfig, callConfiguredModel, callHuggingFaceModel, parseGradioCompletion, safeHuggingFaceHttpDiagnostic, safeDiagnosticCode, safeDiagnosticText, upstreamDiagnosticFields };
