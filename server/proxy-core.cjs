@@ -62,7 +62,7 @@ function requestedArtifactFormat(message) { const value = String(message || '').
 function publicArtifactFromRecord(artifact) { return artifact && { id: artifact.id, filename: artifact.displayFilename || artifact.filename, contentType: artifact.contentType, format: artifact.format, size: artifact.size, checksum: artifact.checksum, status: artifact.status, preview: artifact.preview, createdAt: artifact.createdAt, expiresAt: artifact.expiresAt, messageId: artifact.messageId }; }
 function safeUpstreamMessage(status) { if (status === 401 || status === 403) return 'The model service rejected the request.'; if (status === 429) return 'The model service is temporarily busy. Try again shortly.'; if (status >= 500) return 'The model service is unavailable.'; return 'The model request could not be completed.'; }
 function safeDiagnosticCode(value) { return typeof value === 'string' && /^[A-Z0-9_]{1,80}$/.test(value) ? value : undefined; }
-function safeDiagnosticText(value, maximum = 500) { if (typeof value !== 'string' || !value.trim()) return undefined; return value.replace(/https?:\/\/[^\s]+/gi, '[URL]').replace(/\bBearer\s+[A-Za-z0-9._~+_\/-]+=*/gi, 'Bearer [REDACTED]').replace(/(authorization|token|secret|api[_-]?key)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[REDACTED]').replace(/[\r\n\t]+/g, ' ').slice(0, maximum); }
+function safeDiagnosticText(value, maximum = 500) { if (typeof value !== 'string' || !value.trim()) return undefined; return value.replace(/https?:\/\/[^\s]+/gi, '[URL]').replace(/\bBearer\s+[A-Za-z0-9._~+_\/-]+=*/gi, 'Bearer [REDACTED]').replace(/(authorization|token|secret|api[_-]?key)(\s*[:=]\s*)(?:bearer\s+)?[^\s,;]+/gi, '$1$2[REDACTED]').replace(/[\r\n\t]+/g, ' ').slice(0, maximum); }
 function upstreamDiagnosticFields(caught) { const code = safeDiagnosticCode(caught?.upstreamCode); const message = safeDiagnosticText(caught?.upstreamMessage); const status = Number.isInteger(caught?.upstreamStatus) && caught.upstreamStatus >= 400 && caught.upstreamStatus < 600 ? caught.upstreamStatus : undefined; return { ...(code ? { upstream_code: code } : {}), ...(message ? { upstream_message: message } : {}), ...(status ? { upstream_status: status } : {}) }; }
 async function upstream(url, key, path, init, timeout, signal) { const controller = new AbortController(); const relayAbort = () => controller.abort(); signal?.addEventListener('abort', relayAbort, { once: true }); const timer = setTimeout(() => controller.abort(), timeout); try { const result = await fetch(`${url}${path}`, { ...init, signal: controller.signal, headers: { 'X-API-Key': key, Accept: 'application/json', ...(init.method === 'POST' ? { 'Content-Type': 'application/json' } : {}) } }); const raw = await result.text(); let body; try { body = raw ? JSON.parse(raw) : {}; } catch { body = {}; } return { status: result.status, body }; } finally { clearTimeout(timer); signal?.removeEventListener('abort', relayAbort); } }
 function runPodConfig(env = process.env) {
@@ -142,7 +142,7 @@ function parseGradioCompletion(sse) {
         }
         const safeUpstreamMessage = upstreamText
           .replace(/https?:\/\/[^\s]+/gi, '[URL]')
-          .replace(/(authorization|token|secret|api[_-]?key)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[REDACTED]')
+          .replace(/(authorization|token|secret|api[_-]?key)(\s*[:=]\s*)(?:bearer\s+)?[^\s,;]+/gi, '$1$2[REDACTED]')
           .replace(/[\r\n\t]+/g, ' ')
           .slice(0, 500);
         const normalized = upstreamText.toLowerCase();
@@ -176,14 +176,14 @@ function safeHuggingFaceHttpDiagnostic(response, raw, stage) {
     if (typeof value === 'string') return [value];
     if (Array.isArray(value)) return value.flatMap(item => collect(item, depth + 1));
     if (typeof value === 'object') return Object.entries(value)
-      .filter(([key]) => /error|message|detail|reason|exception|status/i.test(key))
+      .filter(([key]) => /error|message|detail|reason|exception|status|data|runtime/i.test(key))
       .flatMap(([, item]) => collect(item, depth + 1));
     return [];
   };
   const rawMessage = collect(parsed).join(' ') || (typeof raw === 'string' && !/^\s*</.test(raw) ? raw : '');
   const safeMessage = rawMessage
     .replace(/https?:\/\/[^\s]+/gi, '[URL]')
-    .replace(/(authorization|token|secret|api[_-]?key)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[REDACTED]')
+    .replace(/(authorization|token|secret|api[_-]?key)(\s*[:=]\s*)(?:bearer\s+)?[^\s,;]+/gi, '$1$2[REDACTED]')
     .replace(/[\r\n\t]+/g, ' ').slice(0, 500);
   const status = response.status;
   const upstreamCode = status === 429 ? 'UPSTREAM_RATE_LIMIT'
@@ -351,7 +351,7 @@ async function execute(route, method, body, meta = {}, env = process.env) { cons
       const errorName = typeof caught?.name === 'string' && /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(caught.name) ? caught.name : undefined;
       const causeCode = typeof caught?.cause?.code === 'string' && /^[A-Z0-9_]{1,64}$/.test(caught.cause.code) ? caught.cause.code : undefined;
       const rawErrorMessage = typeof caught?.message === 'string' ? caught.message : '';
-      const safeErrorMessage = rawErrorMessage.replace(/https?:\/\/[^\s]+/gi, '[URL]').replace(/(authorization|token|secret|api[_-]?key)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[REDACTED]').replace(/[\r\n\t]+/g, ' ').slice(0, 240);
+      const safeErrorMessage = rawErrorMessage.replace(/https?:\/\/[^\s]+/gi, '[URL]').replace(/(authorization|token|secret|api[_-]?key)(\s*[:=]\s*)(?:bearer\s+)?[^\s,;]+/gi, '$1$2[REDACTED]').replace(/[\r\n\t]+/g, ' ').slice(0, 240);
       const stackFrames = typeof caught?.stack === 'string' ? caught.stack.split('\n').slice(1, 5).map(line => line.trim().slice(0, 240)) : undefined;
       const upstreamFields = upstreamDiagnosticFields(caught);
       const diagnostic = { code: String(code || 'REQUEST_FAILED').slice(0, 80), ...(errorName ? { error_name: errorName } : {}), ...(causeCode ? { cause_code: causeCode } : {}), ...(safeErrorMessage ? { error_message: safeErrorMessage } : {}), ...upstreamFields, ...(failedSources?.length ? { failed_sources: failedSources } : {}) };
