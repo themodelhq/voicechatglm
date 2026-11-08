@@ -124,3 +124,34 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
 .row-menu button.danger-text { margin-top: 4px; border-top: 1px solid var(--border); border-radius: 0 0 7px 7px; padding-top: 10px; }
 @media (hover: none) { .row-more { visibility: visible; } }
 @media (max-width: 760px) { .row-menu { right: 0; top: 100%; } }
+
+
+/* Settings memory editor: consistent fields, spacing and responsive action placement. */
+.settings-section .memory-form { display: grid; grid-template-columns: minmax(180px,.85fr) minmax(260px,1.5fr) auto; align-items: end; gap: 10px; margin: 16px 0 10px; }
+.settings-section .memory-form input,.settings-section .memory-form textarea,.settings-section .memory-form select { box-sizing: border-box; width: 100%; min-width: 0; min-height: 42px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); font: inherit; line-height: 1.45; }
+.settings-section .memory-form textarea { min-height: 64px; max-height: 180px; resize: vertical; }
+.settings-section .memory-form .button { min-height: 42px; white-space: nowrap; }
+.settings-section .archived-list { display: grid; gap: 8px; margin: 14px 0; }
+.settings-section .archived-list > div { display: flex; min-width: 0; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-muted); }
+.settings-section .archived-list > div > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.settings-section .archived-list small { display: block; margin-top: 3px; color: var(--muted); white-space: pre-wrap; }
+.settings-section .privacy-note { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border: 1px solid color-mix(in srgb,var(--accent) 35%,var(--border)); border-radius: 11px; }
+.settings-section .privacy-note > div { flex: 1; min-width: 0; }
+.settings-section .privacy-note p { margin: 5px 0 0; line-height: 1.55; }
+/* Data analysis controls are deliberately stacked on narrow widths and never squeezed inline. */
+.data-analysis-panel { margin-top: 18px; }
+.data-analysis-panel > .setting-row { align-items: flex-start; border: 0; padding: 0 0 14px; }
+.data-analysis-panel > .setting-row > div { flex: 1; min-width: 0; }
+.data-analysis-panel > .setting-row h2 { margin: 0 0 7px; font-size: 21px; }
+.data-analysis-panel > .setting-row p { max-width: 900px; line-height: 1.55; }
+.data-analysis-panel > .memory-form { display: grid; grid-template-columns: repeat(auto-fit,minmax(210px,1fr)); align-items: end; gap: 12px; margin: 4px 0 14px; }
+.data-analysis-panel .memory-form label { display: grid; min-width: 0; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 650; }
+.data-analysis-panel .memory-form input,.data-analysis-panel .memory-form select,.data-analysis-panel .memory-form textarea { box-sizing: border-box; width: 100%; min-width: 0; min-height: 40px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); font: inherit; font-weight: 400; }
+.data-analysis-panel .memory-form textarea { min-height: 130px; resize: vertical; }
+.data-analysis-panel > .button { min-height: 42px; }
+.data-analysis-panel .attachment-card { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 14px; }
+/* Chat option menu is rendered in a body portal so the sidebar's scrolling viewport cannot crop it. */
+.menu-dismiss-layer { position: fixed; z-index: 99; inset: 0; border: 0; background: transparent; }
+.row-menu-portal { position: fixed; z-index: 100; width: 196px; max-height: min(360px,calc(100vh - 16px)); overflow-y: auto; padding: 6px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 14px 38px rgb(0 0 0 / .18); }
+.row-menu-portal button { min-height: 38px; padding: 9px 11px; border-radius: 7px; font-size: 13px; }
+@media (max-width: 700px) { .settings-section .memory-form { grid-template-columns: 1fr; align-items: stretch; }.settings-section .memory-form .button { width: 100%; }.settings-section .archived-list > div { flex-wrap: wrap; }.settings-section .archived-list > div > span { flex-basis: 100%; }.data-analysis-panel .memory-form { grid-template-columns: 1fr; }.data-analysis-panel > .setting-row { flex-wrap: wrap; }.data-analysis-panel > .setting-row .status-badge { margin-left: auto; } }
