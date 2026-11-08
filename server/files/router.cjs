@@ -70,6 +70,17 @@ function productionPublicFile(record) {
   const metadata = record.metadata || {}; const status = record.status;
   return { id: record.id, filename: record.filename, type: record.type, size: record.size, state: status, processingStatus: status, analysisAvailable: Boolean(metadata.analysisAvailable), inspectionAvailable: Boolean(metadata.inspectionAvailable), contentAnalysisAvailable: Boolean(metadata.contentAnalysisAvailable), notices: Array.isArray(metadata.notices) ? metadata.notices : [], sources: Array.isArray(metadata.sources) ? metadata.sources : [], truncated: Boolean(metadata.truncated), uploadedAt: record.createdAt, expiresAt: record.expiresAt, ...(metadata.archive ? { archive: metadata.archive } : {}) };
 }
+function analysisJobDiagnostic(job) {
+  const diagnosticCode = /^[A-Z0-9_]{1,80}$/.test(String(job?.error_code || '')) ? String(job.error_code) : undefined;
+  const diagnosticStage = typeof job?.progress?.diagnosticStage === 'string' && /^[a-z0-9_]{1,80}$/.test(job.progress.diagnosticStage) ? job.progress.diagnosticStage : undefined;
+  const upstream = job?.progress?.upstreamDiagnostic && typeof job.progress.upstreamDiagnostic === 'object' ? job.progress.upstreamDiagnostic : {};
+  const upstreamCode = /^[A-Z0-9_]{1,80}$/.test(String(upstream.upstreamCode || '')) ? String(upstream.upstreamCode) : undefined;
+  const upstreamMessage = typeof upstream.upstreamMessage === 'string' ? upstream.upstreamMessage.slice(0, 500) : undefined;
+  const upstreamStatus = Number.isInteger(upstream.upstreamStatus) && upstream.upstreamStatus >= 400 && upstream.upstreamStatus < 600 ? upstream.upstreamStatus : undefined;
+  const upstreamRequestId = typeof upstream.upstreamRequestId === 'string' && /^[A-Za-z0-9._:-]{1,120}$/.test(upstream.upstreamRequestId) ? upstream.upstreamRequestId : undefined;
+  const upstreamRetryAfter = typeof upstream.upstreamRetryAfter === 'string' && /^[0-9]{1,6}$/.test(upstream.upstreamRetryAfter) ? upstream.upstreamRetryAfter : undefined;
+  return { ...(diagnosticCode ? { code: diagnosticCode } : {}), ...(diagnosticStage ? { stage: diagnosticStage } : {}), ...(upstreamCode ? { upstream_code: upstreamCode } : {}), ...(upstreamMessage ? { upstream_message: upstreamMessage } : {}), ...(upstreamStatus ? { upstream_status: upstreamStatus } : {}), ...(upstreamRequestId ? { upstream_request_id: upstreamRequestId } : {}), ...(upstreamRetryAfter ? { upstream_retry_after: upstreamRetryAfter } : {}) };
+}
 function productionError(res, error, origin, cfg) {
   const code = typeof error?.code === 'string' ? error.code : undefined;
   const knownClientError = code === 'CANCELLED' || code === 'MALWARE_FOUND' || code === 'FILE_TOO_LARGE' || code === 'FILE_NOT_CLEAN' || code === 'ANALYSIS_UNAVAILABLE' || code?.startsWith?.('OCR_');
@@ -294,15 +305,9 @@ async function productionFileHandler(req, res, cfg, providerRequest) {
         if (job.result_storage_key && ['analysis_completed', 'partially_analyzed'].includes(job.status)) {
           result = await store.getJson(job.result_storage_key, policy.maxAnalysisCharacters * Math.max(1, policy.maxFilesPerMessage) * 4);
         }
-        const diagnosticCode = /^[A-Z0-9_]{1,80}$/.test(String(job.error_code || '')) ? String(job.error_code) : undefined;
-        const diagnosticStage = typeof job.progress?.diagnosticStage === 'string' && /^[a-z0-9_]{1,80}$/.test(job.progress.diagnosticStage) ? job.progress.diagnosticStage : undefined;
-        const upstream = job.progress?.upstreamDiagnostic && typeof job.progress.upstreamDiagnostic === 'object' ? job.progress.upstreamDiagnostic : {};
-        const upstreamCode = /^[A-Z0-9_]{1,80}$/.test(String(upstream.upstreamCode || '')) ? String(upstream.upstreamCode) : undefined;
-        const upstreamMessage = typeof upstream.upstreamMessage === 'string' ? upstream.upstreamMessage.slice(0, 500) : undefined;
-        const upstreamStatus = Number.isInteger(upstream.upstreamStatus) && upstream.upstreamStatus >= 400 && upstream.upstreamStatus < 600 ? upstream.upstreamStatus : undefined;
-        const upstreamRequestId = typeof upstream.upstreamRequestId === 'string' && /^[A-Za-z0-9._:-]{1,120}$/.test(upstream.upstreamRequestId) ? upstream.upstreamRequestId : undefined;
-        const upstreamRetryAfter = typeof upstream.upstreamRetryAfter === 'string' && /^[0-9]{1,6}$/.test(upstream.upstreamRetryAfter) ? upstream.upstreamRetryAfter : undefined;
-        return send(res, 200, { jobId: job.id, status: job.status, ...(result ? { result } : {}), ...(['failed', 'cancelled'].includes(job.status) ? { error: job.error_message || (job.status === 'cancelled' ? 'Analysis was cancelled.' : 'Analysis failed.') } : {}), ...(job.status === 'failed' ? { diagnostic: { ...(diagnosticCode ? { code: diagnosticCode } : {}), ...(diagnosticStage ? { stage: diagnosticStage } : {}), ...(upstreamCode ? { upstream_code: upstreamCode } : {}), ...(upstreamMessage ? { upstream_message: upstreamMessage } : {}), ...(upstreamStatus ? { upstream_status: upstreamStatus } : {}), ...(upstreamRequestId ? { upstream_request_id: upstreamRequestId } : {}), ...(upstreamRetryAfter ? { upstream_retry_after: upstreamRetryAfter } : {}) } } : {}) }, origin, cfg);
+        const diagnostic = analysisJobDiagnostic(job);
+
+        return send(res, 200, { jobId: job.id, status: job.status, ...(result ? { result } : {}), ...(['failed', 'cancelled'].includes(job.status) ? { error: job.error_message || (job.status === 'cancelled' ? 'Analysis was cancelled.' : 'Analysis failed.') } : {}), ...(job.status === 'failed' ? { diagnostic } : {}) }, origin, cfg);
       }
     } catch {
       return safeError(res, 503, 'Analysis result is temporarily unavailable.', origin, cfg);
@@ -316,4 +321,4 @@ async function nodeFileHandler(req, res, cfg, providerRequest) {
     ? productionFileHandler(req, res, cfg, providerRequest)
     : developmentFileHandler(req, res, cfg);
 }
-module.exports = { DEV_SESSION_HEADER, uploadContentType, nodeFileHandler, productionFileHandler, productionPublicFile, parseMultipart, parseJson, developmentOwner, isLoopback, runCancellable, redactStandaloneExtraction, loadRecords, buildCsvExport, buildXlsxExport };
+module.exports = { DEV_SESSION_HEADER, uploadContentType, nodeFileHandler, productionFileHandler, productionPublicFile, analysisJobDiagnostic, parseMultipart, parseJson, developmentOwner, isLoopback, runCancellable, redactStandaloneExtraction, loadRecords, buildCsvExport, buildXlsxExport };
