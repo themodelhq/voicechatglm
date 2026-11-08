@@ -16,6 +16,8 @@ describe('central deterministic intent router', () => {
     expect(classifyIntent('Who is the current president of Nigeria?')).toMatchObject({ intent: 'web_search', currentInformation: true });
     expect(classifyIntent('What are the latest developments in the conflict?')).toMatchObject({ intent: 'web_search', currentInformation: true, searchTopic: 'news' });
     expect(classifyIntent('What is the current exchange rate for USD to NGN?')).toMatchObject({ intent: 'web_search', currentInformation: true });
+    expect(classifyIntent('What is the price of gold?')).toMatchObject({ intent: 'web_search', currentInformation: true });
+    expect(classifyIntent('Did Arsenal win?')).toMatchObject({ intent: 'web_search', currentInformation: true });
     expect(classifyIntent('Explain how neural networks work.').intent).toBe('general_chat');
     expect(classifyIntent('Explain electric current in a circuit.').intent).toBe('general_chat');
     expect(classifyIntent('Explain the current flowing through a resistor.').intent).toBe('general_chat');
