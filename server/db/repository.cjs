@@ -99,10 +99,19 @@ class Repository {
         }
       }
       substage = 'insert_analysis_job';
-      await client.query("INSERT INTO analysis_jobs (id, user_id, status, request, attempts, max_attempts, started_at) VALUES ($1,$2,'processing',$3::jsonb,1,1,NOW())", [id, userId, JSON.stringify(request)]);
+      await client.query("INSERT INTO analysis_jobs (id, user_id, status, request, attempts, max_attempts, started_at) VALUES ($1,$2,'queued',$3::jsonb,0,3,NULL)", [id, userId, JSON.stringify(request)]);
       for (const fileId of fileIds) {
         substage = 'link_file_' + (fileIds.indexOf(fileId) + 1);
         await client.query('INSERT INTO analysis_job_files (analysis_job_id, file_id) VALUES ($1,$2)', [id, fileId]);
+      }
+      if (request?.conversationId && request?.assistantMessageId) {
+        substage = 'persist_job_reference_on_assistant_message';
+        const linked = await client.query(`UPDATE conversation_messages
+          SET metadata=COALESCE(metadata,'{}'::jsonb)||jsonb_build_object('analysisJobId',$3,'route','file_analysis'),
+              updated_at=NOW()
+          WHERE id=$1 AND conversation_id=$2 AND user_id=$4 AND role='assistant'
+          RETURNING id`, [request.assistantMessageId, request.conversationId, id, userId]);
+        if (linked.rowCount !== 1) throw Object.assign(new Error('The analysis job could not be linked to its conversation.'), { code: 'CONVERSATION_STORAGE' });
       }
       substage = 'commit_transaction';
       await client.query('COMMIT');
@@ -130,7 +139,58 @@ class Repository {
       }
     }
   }
-  async completeAnalysisJob({ id, status, resultStorageKey, errorCode, errorMessage }) { await this.pool.query('UPDATE analysis_jobs SET status = $2, result_storage_key = $3, error_code = $4, error_message = $5, completed_at = NOW(), updated_at = NOW() WHERE id = $1', [id, status, resultStorageKey || null, errorCode || null, errorMessage || null]); }
+  async claimAnalysisJob(workerId, leaseMs = 120000) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const selected = await client.query(`SELECT * FROM analysis_jobs
+        WHERE status = 'queued'
+           OR (status = 'processing' AND COALESCE(lease_expires_at, started_at + INTERVAL '2 minutes') < NOW())
+        ORDER BY created_at ASC
+        LIMIT 1 FOR UPDATE SKIP LOCKED`);
+      const job = selected.rows[0];
+      if (!job) { await client.query('COMMIT'); return undefined; }
+      if (Number(job.attempts || 0) >= Number(job.max_attempts || 3)) {
+        await client.query("UPDATE analysis_jobs SET status='failed',error_code='WORKER_RESTART_LIMIT',error_message='The analysis could not resume after repeated worker interruptions.',completed_at=NOW(),updated_at=NOW(),worker_id=NULL,lease_expires_at=NULL WHERE id=$1", [job.id]);
+        const request = job.request || {};
+        if (request.conversationId && request.assistantMessageId) {
+          await client.query(`UPDATE conversation_messages SET content='',status='error',
+            metadata=COALESCE(metadata,'{}'::jsonb)||jsonb_build_object('route','file_analysis','analysisJobId',$3,'error',$4),
+            updated_at=NOW()
+            WHERE id=$1 AND conversation_id=$2 AND role='assistant'`,
+          [request.assistantMessageId, request.conversationId, job.id, 'The analysis could not resume after repeated worker interruptions.']);
+        }
+        await client.query('COMMIT');
+        return undefined;
+      }
+      const claimed = await client.query(`UPDATE analysis_jobs SET status='processing',worker_id=$2,
+        lease_expires_at=NOW()+($3 * INTERVAL '1 millisecond'),attempts=attempts+1,
+        started_at=COALESCE(started_at,NOW()),updated_at=NOW()
+        WHERE id=$1 RETURNING *`, [job.id, workerId, leaseMs]);
+      await client.query('COMMIT');
+      return claimed.rows[0];
+    } catch (error) { await client.query('ROLLBACK').catch(() => undefined); throw error; }
+    finally { client.release(); }
+  }
+  async analysisJobFileIds(id, userId) {
+    const result = await this.pool.query('SELECT jf.file_id FROM analysis_job_files jf JOIN analysis_jobs j ON j.id=jf.analysis_job_id WHERE jf.analysis_job_id=$1 AND j.user_id=$2 ORDER BY jf.file_id', [id, userId]);
+    return result.rows.map(row => row.file_id);
+  }
+  async renewAnalysisJobLease(id, workerId, leaseMs = 120000) {
+    const result = await this.pool.query(`UPDATE analysis_jobs SET lease_expires_at=NOW()+($3 * INTERVAL '1 millisecond'),updated_at=NOW()
+      WHERE id=$1 AND worker_id=$2 AND status='processing'
+      RETURNING cancel_requested_at`, [id, workerId, leaseMs]);
+    return result.rows[0] ? { cancelRequested: Boolean(result.rows[0].cancel_requested_at) } : undefined;
+  }
+  async completeAnalysisJob({ id, status, resultStorageKey, errorCode, errorMessage, workerId }) {
+    const values = [id, status, resultStorageKey || null, errorCode || null, errorMessage || null];
+    const guard = workerId ? ' AND worker_id = $6' : '';
+    if (workerId) values.push(workerId);
+    const result = await this.pool.query(`UPDATE analysis_jobs SET status=$2,result_storage_key=$3,error_code=$4,error_message=$5,
+      completed_at=NOW(),updated_at=NOW(),worker_id=NULL,lease_expires_at=NULL
+      WHERE id=$1${guard} RETURNING id`, values);
+    return result.rowCount === 1;
+  }
   async analysisJobForOwner(userId, id) { const result = await this.pool.query('SELECT j.* FROM analysis_jobs j WHERE j.id = $1 AND j.user_id = $2 AND EXISTS (SELECT 1 FROM analysis_job_files jf JOIN files f ON f.id = jf.file_id WHERE jf.analysis_job_id = j.id AND f.deleted_at IS NULL)', [id, userId]); return result.rows[0]; }
   async requestCancelJob(userId, id) { const result = await this.pool.query("UPDATE analysis_jobs SET cancel_requested_at = NOW(), status = CASE WHEN status = 'queued' THEN 'cancelled' ELSE status END, updated_at = NOW() WHERE id = $1 AND user_id = $2 RETURNING *", [id, userId]); return result.rows[0]; }
   async cancellationRequested(userId, id) { const result = await this.pool.query('SELECT cancel_requested_at FROM analysis_jobs WHERE id = $1 AND user_id = $2', [id, userId]); return Boolean(result.rows[0]?.cancel_requested_at); }
@@ -145,7 +205,7 @@ class Repository {
   async chapterRevisionsForOwner(userId, projectId, chapterId) { const chapter = await this.writingChapterForOwner(userId, projectId, chapterId); if (!chapter) return undefined; const result = await this.pool.query('SELECT id, revision_number, content, change_note, created_at FROM writing_chapter_revisions WHERE chapter_id = $1 ORDER BY revision_number DESC', [chapterId]); return result.rows.map(row => ({ id: row.id, revisionNumber: Number(row.revision_number), content: row.content, changeNote: row.change_note || undefined, createdAt: row.created_at })); }
   async addWritingNote({ userId, projectId, type, title, content, approved }) { const project = await this.writingProjectForOwner(userId, projectId); if (!project) return undefined; const result = await this.pool.query('INSERT INTO writing_notes (id, project_id, note_type, title, content, approved_at) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *', [randomUUID(), projectId, type, title, content, approved ? new Date() : null]); const row = result.rows[0]; return { id: row.id, type: row.note_type, title: row.title, content: row.content, approvedAt: row.approved_at || undefined, createdAt: row.created_at, updatedAt: row.updated_at }; }
   async deleteWritingProject(userId, id) { const result = await this.pool.query('UPDATE writing_projects SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL RETURNING *', [id, userId]); return writingProjectRow(result.rows[0]); }
-  async recoverStaleJobs(maxAgeMs) { await this.pool.query("UPDATE analysis_jobs SET status = 'failed', completed_at = NOW(), updated_at = NOW(), error_code = 'STALE_JOB', error_message = 'Processing did not complete before the recovery timeout.' WHERE status = 'processing' AND started_at < NOW() - ($1::text || ' milliseconds')::interval", [String(maxAgeMs)]); await this.pool.query("UPDATE workflow_jobs SET status = 'failed', completed_at = NOW(), updated_at = NOW(), error_code = 'STALE_JOB', error_message = 'Workflow did not complete before the recovery timeout.' WHERE status = 'processing' AND started_at < NOW() - ($1::text || ' milliseconds')::interval", [String(maxAgeMs)]); await this.pool.query("UPDATE operation_jobs SET status = 'failed', completed_at = NOW(), updated_at = NOW(), error_code = 'STALE_JOB', error_message = 'Operation did not complete before the recovery timeout.' WHERE status = 'running' AND started_at < NOW() - ($1::text || ' milliseconds')::interval", [String(maxAgeMs)]).catch(() => undefined); }
+  async recoverStaleJobs(maxAgeMs) { await this.pool.query("UPDATE analysis_jobs SET status = 'queued', completed_at = NULL, updated_at = NOW(), error_code = NULL, error_message = NULL, worker_id = NULL, lease_expires_at = NULL WHERE status = 'processing' AND COALESCE(lease_expires_at, started_at + INTERVAL '2 minutes') < NOW()"); await this.pool.query("UPDATE workflow_jobs SET status = 'failed', completed_at = NOW(), updated_at = NOW(), error_code = 'STALE_JOB', error_message = 'Workflow did not complete before the recovery timeout.' WHERE status = 'processing' AND started_at < NOW() - ($1::text || ' milliseconds')::interval", [String(maxAgeMs)]); await this.pool.query("UPDATE operation_jobs SET status = 'failed', completed_at = NOW(), updated_at = NOW(), error_code = 'STALE_JOB', error_message = 'Operation did not complete before the recovery timeout.' WHERE status = 'running' AND started_at < NOW() - ($1::text || ' milliseconds')::interval", [String(maxAgeMs)]).catch(() => undefined); }
   async cleanupExpired() { const result = await this.pool.query('SELECT * FROM files WHERE expires_at <= NOW() AND deleted_at IS NULL'); const resultKeys = await this.pool.query("SELECT DISTINCT j.result_storage_key FROM analysis_jobs j JOIN analysis_job_files jf ON jf.analysis_job_id = j.id JOIN files f ON f.id = jf.file_id WHERE f.expires_at <= NOW() AND f.deleted_at IS NULL AND j.result_storage_key IS NOT NULL"); const artifactRows = await this.pool.query("SELECT * FROM generated_artifacts WHERE expires_at <= NOW() AND deleted_at IS NULL AND status = 'available'").catch(() => ({ rows: [] })); await this.pool.query('UPDATE files SET deleted_at = NOW(), updated_at = NOW() WHERE expires_at <= NOW() AND deleted_at IS NULL'); await this.pool.query("UPDATE generated_artifacts SET deleted_at = NOW(), status = 'expired', updated_at = NOW() WHERE expires_at <= NOW() AND deleted_at IS NULL AND status = 'available'").catch(() => undefined); await this.pool.query('DELETE FROM conversation_share_links WHERE expires_at <= NOW()').catch(() => undefined); await this.pool.query('DELETE FROM sessions WHERE expires_at <= NOW() OR revoked_at < NOW() - INTERVAL \'30 days\''); await this.pool.query('DELETE FROM password_reset_tokens WHERE expires_at <= NOW() OR consumed_at IS NOT NULL'); return { files: result.rows.map(fileRow), resultStorageKeys: resultKeys.rows.map(row => row.result_storage_key), artifacts: artifactRows.rows.map(artifactRow) }; }
 }
 function conversationRow(row) { return row ? { id: row.id, title: row.title, model: row.model_id || undefined, agentId: row.agent_id || undefined, favorite: Boolean(row.favorite), pinned: Boolean(row.pinned), archived: Boolean(row.archived), shareVersion: Number(row.share_version || 0), createdAt: row.created_at, updatedAt: row.updated_at } : undefined; }
