@@ -5,7 +5,7 @@ const { fileAnalysisConfig } = require('./files/policy.cjs');
 const { createObjectStore } = require('./files/object-storage.cjs');
 const { loadRecords, buildCsvExport, buildXlsxExport } = require('./files/router.cjs');
 const { analyzeRecords } = require('./files/analysis.cjs');
-const { config: proxyConfig, callConfiguredModel } = require('./proxy-core.cjs');
+const { config: proxyConfig, callConfiguredModel, safeDiagnosticText } = require('./proxy-core.cjs');
 
 const WORKER_ID = `file-analysis-${process.pid}-${randomUUID()}`;
 const POLL_MS = 1500;
@@ -114,6 +114,11 @@ async function processJobUnsafe(job) {
   } catch (error) {
     const cancelled = error?.code === 'CANCELLED' || controller.signal.aborted;
     const upstreamCode = /^[A-Z0-9_]{1,80}$/.test(String(error?.upstreamCode || '')) ? String(error.upstreamCode) : undefined;
+    const upstreamMessage = safeDiagnosticText(error?.upstreamMessage);
+    const upstreamStatus = Number.isInteger(error?.upstreamStatus) && error.upstreamStatus >= 400 && error.upstreamStatus < 600 ? error.upstreamStatus : undefined;
+    const upstreamRequestId = typeof error?.upstreamRequestId === 'string' && /^[A-Za-z0-9._:-]{1,120}$/.test(error.upstreamRequestId) ? error.upstreamRequestId : undefined;
+    const upstreamRetryAfter = typeof error?.upstreamRetryAfter === 'string' && /^[0-9]{1,6}$/.test(error.upstreamRetryAfter) ? error.upstreamRetryAfter : undefined;
+    const upstreamDiagnostic = { ...(upstreamCode ? { upstreamCode } : {}), ...(upstreamMessage ? { upstreamMessage } : {}), ...(upstreamStatus ? { upstreamStatus } : {}), ...(upstreamRequestId ? { upstreamRequestId } : {}), ...(upstreamRetryAfter ? { upstreamRetryAfter } : {}) };
     const errorCode = cancelled ? 'CANCELLED' : upstreamCode || (/^[A-Z0-9_]{1,80}$/.test(String(error?.code || '')) ? String(error.code) : 'ANALYSIS_FAILED');
     console.error('[VoiceChatGLM file-analysis-worker] Job processing failed.', {
       jobId: job.id,
@@ -121,10 +126,11 @@ async function processJobUnsafe(job) {
       code: /^[A-Z0-9_]{1,80}$/.test(String(error?.code || '')) ? String(error.code) : 'ANALYSIS_FAILED',
       ...(upstreamCode ? { upstreamCode } : {}),
       stage: job._diagnosticStage || 'worker_processing',
-      message: String(error?.message || 'Unknown error').slice(0, 300)
+      message: String(error?.message || 'Unknown error').slice(0, 300),
+      ...(Object.keys(upstreamDiagnostic).length ? { upstreamDiagnostic } : {})
     });
     const terminal = cancelled ? 'cancelled' : 'failed';
-    await repository.completeAnalysisJob({ id: job.id, status: terminal, errorCode, errorMessage: cancelled ? 'Analysis was cancelled.' : 'The file analysis could not be completed.', workerId: WORKER_ID, diagnosticStage: job._diagnosticStage || 'worker_processing' }).catch(() => false);
+    await repository.completeAnalysisJob({ id: job.id, status: terminal, errorCode, errorMessage: cancelled ? 'Analysis was cancelled.' : 'The file analysis could not be completed.', workerId: WORKER_ID, diagnosticStage: job._diagnosticStage || 'worker_processing', diagnosticDetails: upstreamDiagnostic }).catch(() => false);
     if (error?.code !== 'JOB_LEASE_LOST' && request.conversationId && request.assistantMessageId) {
       await repository.updateConversationMessage({
         userId: job.user_id, conversationId: request.conversationId, id: request.assistantMessageId,
