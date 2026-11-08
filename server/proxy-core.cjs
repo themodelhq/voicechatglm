@@ -105,20 +105,32 @@ function parseGradioCompletion(sse) {
     const lines = event.split(/\r?\n/);
     if (!lines.some(line => line.trim() === 'event: complete')) {
       if (lines.some(line => line.trim() === 'event: error')) {
-        const dataLine = lines.find(line => line.startsWith('data:'));
+        const dataLines = lines.filter(line => line.startsWith('data:'));
+        const rawData = dataLines.map(line => line.slice(5).trim()).join('\n');
         let upstreamText = '';
-        if (dataLine) {
+        if (rawData) {
           try {
-            const payload = JSON.parse(dataLine.slice(5).trim());
-            upstreamText = typeof payload === 'string' ? payload : typeof payload?.error === 'string' ? payload.error : typeof payload?.message === 'string' ? payload.message : '';
-          } catch { upstreamText = ''; }
+            const payload = JSON.parse(rawData);
+            const collect = (value, depth = 0) => {
+              if (depth > 4 || value == null) return [];
+              if (typeof value === 'string') return [value];
+              if (Array.isArray(value)) return value.flatMap(item => collect(item, depth + 1));
+              if (typeof value === 'object') return Object.entries(value)
+                .filter(([key]) => /error|message|detail|reason|exception|traceback|status/i.test(key))
+                .flatMap(([, item]) => collect(item, depth + 1));
+              return [];
+            };
+            upstreamText = collect(payload).join(' ').slice(0, 3000);
+          } catch { upstreamText = rawData.slice(0, 3000); }
         }
         const normalized = upstreamText.toLowerCase();
-        const upstreamCode = /out of memory|cuda out of memory|memoryerror|cublas.*alloc/.test(normalized) ? 'UPSTREAM_OUT_OF_MEMORY'
-          : /context length|maximum sequence|too many tokens|input.*too long|sequence length/.test(normalized) ? 'UPSTREAM_INPUT_TOO_LONG'
-          : /model.*(not loaded|loading|unavailable)|failed to load|loading.*model/.test(normalized) ? 'UPSTREAM_MODEL_NOT_READY'
+        const upstreamCode = /out of memory|cuda out of memory|memoryerror|cublas.*alloc|resource exhausted/.test(normalized) ? 'UPSTREAM_OUT_OF_MEMORY'
+          : /context length|maximum sequence|too many tokens|input.*too long|sequence length|maximum.*tokens/.test(normalized) ? 'UPSTREAM_INPUT_TOO_LONG'
+          : /model.*(not loaded|loading|unavailable)|failed to load|loading.*model|weights.*not found/.test(normalized) ? 'UPSTREAM_MODEL_NOT_READY'
           : /timeout|timed out|deadline exceeded/.test(normalized) ? 'UPSTREAM_TIMEOUT'
-          : /rate.?limit|too many requests|429/.test(normalized) ? 'UPSTREAM_RATE_LIMIT'
+          : /rate.?limit|too many requests|429|device-api\.zero|zero.?gpu.*(queue|capacity|limit)/.test(normalized) ? 'UPSTREAM_RATE_LIMIT'
+          : /cuda error|device-side assert|no kernel image|cudnn|nccl|gpu.*(unavailable|failed)/.test(normalized) ? 'UPSTREAM_GPU_ERROR'
+          : /validationerror|invalid.*(input|parameter)|expected.*(string|list|dict)|typeerror|valueerror/.test(normalized) ? 'UPSTREAM_INPUT_VALIDATION'
           : 'UPSTREAM_GENERATION_ERROR';
         throw Object.assign(new Error('Hugging Face inference returned an error event.'), { code: 'MODEL_UPSTREAM_ERROR', upstreamCode });
       }
