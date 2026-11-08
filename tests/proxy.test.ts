@@ -14,9 +14,11 @@ describe('Hugging Face Gradio provider contract', () => {
     const { parseGradioCompletion } = require('../server/proxy-core.cjs');
     expect(parseGradioCompletion('event: complete\ndata: ["generated answer"]\n\n')).toMatchObject({ status: 200, body: { response: 'generated answer', model: 'themodelhq/voicechatglm-qwen3-8b', revision: '9f25d05035bfda0de9b36dfc5911ddcdb378f3c8' } });
     for (const [event, upstreamCode] of [
-      ['event: error\\ndata: "CUDA out of memory"\\n\\n', 'UPSTREAM_OUT_OF_MEMORY'],
-      ['event: error\\ndata: {"error":"Input exceeds maximum sequence length"}\\n\\n', 'UPSTREAM_INPUT_TOO_LONG'],
-      ['event: error\\ndata: "failed"\\n\\n', 'UPSTREAM_GENERATION_ERROR']
+      ['event: error\ndata: "CUDA out of memory"\n\n', 'UPSTREAM_OUT_OF_MEMORY'],
+      ['event: error\ndata: {"error":"Input exceeds maximum sequence length"}\n\n', 'UPSTREAM_INPUT_TOO_LONG'],
+      ['event: error\ndata: "failed"\n\n', 'UPSTREAM_GENERATION_ERROR'],
+      ['event: error\ndata: {"detail":{"exception":"CUDA device-side assert"}}\n\n', 'UPSTREAM_GPU_ERROR'],
+      ['event: error\ndata: {"error":"device-api.zero returned 429 Too Many Requests"}\n\n', 'UPSTREAM_RATE_LIMIT']
     ]) {
       try { parseGradioCompletion(event); throw new Error('Expected Gradio error event to throw.'); }
       catch (error) { expect(error).toMatchObject({ code: 'MODEL_UPSTREAM_ERROR', upstreamCode }); }
