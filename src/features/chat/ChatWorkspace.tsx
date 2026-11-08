@@ -83,9 +83,9 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
             analysisJobs.current.delete(message.id);
             updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map((entry, index) => entry.id === message.id ? {
               ...entry, content: '', status: job.status === 'cancelled' ? 'cancelled' : 'error',
-              error: job.error || (job.status === 'cancelled' ? 'The file analysis was cancelled.' : 'The file analysis could not be completed.')
+              error: [job.error || (job.status === 'cancelled' ? 'The file analysis was cancelled.' : 'The file analysis could not be completed.'), ...(job.diagnostic?.code ? [`Code: ${job.diagnostic.code}`] : []), ...(job.diagnostic?.stage ? [`Stage: ${job.diagnostic.stage}`] : []), `Job: ${job.jobId}`].join(' · ')
             } : index === item.messages.findIndex(candidate => candidate.id === message.id) - 1 && entry.role === 'user' && entry.attachments?.some(file => file.state === 'analyzing') ? {
-              ...entry, attachments: entry.attachments.map(file => file.state === 'analyzing' ? { ...file, state: job.status === 'cancelled' ? 'cancelled' : 'failed', error: job.error || 'File analysis failed.' } : file)
+              ...entry, attachments: entry.attachments.map(file => file.state === 'analyzing' ? { ...file, state: job.status === 'cancelled' ? 'cancelled' : 'failed', error: [job.error || 'File analysis failed.', ...(job.diagnostic?.code ? [`Code: ${job.diagnostic.code}`] : []), ...(job.diagnostic?.stage ? [`Stage: ${job.diagnostic.stage}`] : []), `Job: ${job.jobId}`].join(' · ') } : file)
             } : entry) }));
           }
         }

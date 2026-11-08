@@ -182,11 +182,11 @@ class Repository {
       RETURNING cancel_requested_at`, [id, workerId, leaseMs]);
     return result.rows[0] ? { cancelRequested: Boolean(result.rows[0].cancel_requested_at) } : undefined;
   }
-  async completeAnalysisJob({ id, status, resultStorageKey, errorCode, errorMessage, workerId }) {
-    const values = [id, status, resultStorageKey || null, errorCode || null, errorMessage || null];
+  async completeAnalysisJob({ id, status, resultStorageKey, errorCode, errorMessage, workerId, diagnosticStage }) {
+    const values = [id, status, resultStorageKey || null, errorCode || null, errorMessage || null, workerId || null, diagnosticStage || null];
     const guard = workerId ? ' AND worker_id = $6' : '';
-    if (workerId) values.push(workerId);
     const result = await this.pool.query(`UPDATE analysis_jobs SET status=$2,result_storage_key=$3,error_code=$4,error_message=$5,
+      progress=CASE WHEN $7::text IS NULL THEN COALESCE(progress,'{}'::jsonb) ELSE COALESCE(progress,'{}'::jsonb)||jsonb_build_object('diagnosticStage',$7::text) END,
       completed_at=NOW(),updated_at=NOW(),worker_id=NULL,lease_expires_at=NULL
       WHERE id=$1${guard} RETURNING id`, values);
     return result.rowCount === 1;
