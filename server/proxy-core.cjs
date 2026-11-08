@@ -123,6 +123,11 @@ function parseGradioCompletion(sse) {
             upstreamText = collect(payload).join(' ').slice(0, 3000);
           } catch { upstreamText = rawData.slice(0, 3000); }
         }
+        const safeUpstreamMessage = upstreamText
+          .replace(/https?:\/\/[^\s]+/gi, '[URL]')
+          .replace(/(authorization|token|secret|api[_-]?key)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[REDACTED]')
+          .replace(/[\r\n\t]+/g, ' ')
+          .slice(0, 500);
         const normalized = upstreamText.toLowerCase();
         const upstreamCode = /out of memory|cuda out of memory|memoryerror|cublas.*alloc|resource exhausted/.test(normalized) ? 'UPSTREAM_OUT_OF_MEMORY'
           : /context length|maximum sequence|too many tokens|input.*too long|sequence length|maximum.*tokens/.test(normalized) ? 'UPSTREAM_INPUT_TOO_LONG'
@@ -132,7 +137,7 @@ function parseGradioCompletion(sse) {
           : /cuda error|device-side assert|no kernel image|cudnn|nccl|gpu.*(unavailable|failed)/.test(normalized) ? 'UPSTREAM_GPU_ERROR'
           : /validationerror|invalid.*(input|parameter)|expected.*(string|list|dict)|typeerror|valueerror/.test(normalized) ? 'UPSTREAM_INPUT_VALIDATION'
           : 'UPSTREAM_GENERATION_ERROR';
-        throw Object.assign(new Error('Hugging Face inference returned an error event.'), { code: 'MODEL_UPSTREAM_ERROR', upstreamCode });
+        throw Object.assign(new Error('Hugging Face inference returned an error event.'), { code: 'MODEL_UPSTREAM_ERROR', upstreamCode, upstreamMessage: safeUpstreamMessage || undefined });
       }
       continue;
     }
