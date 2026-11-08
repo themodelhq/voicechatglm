@@ -173,7 +173,7 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
       if (fileIds.length) {
         const accepted = await analyzeFiles(fileIds, message, targetId, systemPrompt, controller.signal, { clientMessageId: userMessageId, assistantMessageId: pendingId });
         if (!mounted.current || controller.signal.aborted) return;
-        if (accepted.jobId) {
+        if ('accepted' in accepted && accepted.accepted) {
           analysisJobs.current.set(pendingId, accepted.jobId);
           patchConversation(targetId, pendingId, entry => ({ ...entry, analysisJobId: accepted.jobId, status: 'sending' }));
           // The status effect owns polling and also resumes jobs restored from PostgreSQL after a refresh.
