@@ -29,6 +29,17 @@ describe('Hugging Face Gradio provider contract', () => {
     expect(() => parseGradioCompletion('event: complete\ndata: [""]\n\n')).toThrow();
     expect(() => parseGradioCompletion('event: heartbeat\ndata: {}\n\n')).toThrow();
   });
+  it('preserves safe HTTP diagnostics from Hugging Face submission and polling failures', () => {
+    const { safeHuggingFaceHttpDiagnostic } = require('../server/proxy-core.cjs');
+    const response = { status: 429, headers: { get: name => name === 'retry-after' ? '12' : name === 'x-request-id' ? 'hf-request-123' : null } };
+    expect(safeHuggingFaceHttpDiagnostic(response, JSON.stringify({ error: 'device-api.zero returned 429 Too Many Requests' }), 'submission')).toMatchObject({
+      upstream_code: 'UPSTREAM_RATE_LIMIT', upstream_status: 429,
+      upstream_message: expect.stringContaining('429 Too Many Requests'),
+      upstream_request_id: 'hf-request-123', upstream_retry_after: '12'
+    });
+    expect(safeHuggingFaceHttpDiagnostic(response, '<html>private response</html>', 'polling').upstream_message).toContain('HTTP 429');
+    expect(safeHuggingFaceHttpDiagnostic({ status: 403, headers: { get: () => null } }, JSON.stringify({ detail: 'Authorization: Bearer secret-value' }), 'submission').upstream_message).not.toContain('secret-value');
+  });
   it('requires both the Space key and HF token for the opt-in provider', () => {
     expect(config({ NODE_ENV: 'test', VOICECHATGLM_PROVIDER: 'huggingface_space', VOICECHATGLM_API_URL: 'https://example.hf.space', VOICECHATGLM_API_KEY: 'space-key' }).error).toBeTruthy();
     expect(config({ NODE_ENV: 'test', VOICECHATGLM_PROVIDER: 'huggingface_space', VOICECHATGLM_API_URL: 'https://example.hf.space', VOICECHATGLM_API_KEY: 'space-key', HF_TOKEN: 'hf_test' }).error).toBeUndefined();
