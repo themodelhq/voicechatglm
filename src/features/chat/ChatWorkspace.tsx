@@ -71,16 +71,22 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
           if (!active) return;
           if (job.status === 'analysis_completed' || job.status === 'partially_analyzed') {
             const result = job.result;
-            updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id !== message.id ? entry : {
+            analysisJobs.current.delete(message.id);
+            updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id === message.id ? {
               ...entry, status: job.status === 'partially_analyzed' || result?.partial ? 'partial' : 'complete',
               content: result?.response || 'The file analysis completed, but no response text was returned.',
               sources: result?.sources || [], analysisTruncated: Boolean(result?.truncated || result?.partial), error: undefined
-            }) }));
+            } : entry.role === 'user' && entry.attachments?.some(file => file.state === 'analyzing') ? {
+              ...entry, attachments: entry.attachments.map(file => file.state === 'analyzing' ? { ...file, state: 'complete' } : file)
+            } : entry) }));
           } else if (job.status === 'failed' || job.status === 'cancelled') {
-            updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id !== message.id ? entry : {
+            analysisJobs.current.delete(message.id);
+            updateConversations(items => items.map(item => item.id !== conversationId ? item : { ...item, messages: item.messages.map(entry => entry.id === message.id ? {
               ...entry, content: '', status: job.status === 'cancelled' ? 'cancelled' : 'error',
               error: job.error || (job.status === 'cancelled' ? 'The file analysis was cancelled.' : 'The file analysis could not be completed.')
-            }) }));
+            } : entry.role === 'user' && entry.attachments?.some(file => file.state === 'analyzing') ? {
+              ...entry, attachments: entry.attachments.map(file => file.state === 'analyzing' ? { ...file, state: job.status === 'cancelled' ? 'cancelled' : 'failed', error: job.error || 'File analysis failed.' } : file)
+            } : entry) }));
           }
         }
       } catch { /* Retry status reads; the durable job remains available in PostgreSQL. */ }
@@ -185,7 +191,7 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
       const friendly = error instanceof ApiError ? error.message : 'The model request failed. Try again.';
       patchConversation(targetId, pendingId, entry => ({ ...entry, content: '', status: 'error', error: friendly }));
       if (messageAttachments?.length) { const expired = error instanceof ApiError && error.status === 404; finishAttachmentState(targetId, expired ? 'failed' : 'ready', expired ? 'The staged attachment expired or was deleted. Attach it again to retry.' : undefined); if (expired) setAttachments(current => current.map(attachment => messageAttachments.some(sent => sent.fileId && sent.fileId === attachment.fileId) ? { ...attachment, state: 'failed', error: 'The staged archive expired or was deleted. Attach it again to retry.' } : attachment)); }
-    } finally { requests.current.delete(pendingId); analysisJobs.current.delete(pendingId); if (mounted.current) setSending(false); }
+    } finally { requests.current.delete(pendingId); if (!analysisJobs.current.has(pendingId)) analysisJobs.current.delete(pendingId); if (mounted.current) setSending(false); }
   };
   const submit = () => {
     const ready = attachments.filter(attachment => (attachment.state === 'ready' || attachment.state === 'partial') && attachment.analysisAvailable && attachment.fileId);
@@ -209,7 +215,7 @@ export function ChatWorkspace({ conversationId, agent, agentId, conversationMiss
     if (!conversation || sending) return; const position = conversation.messages.findIndex(message => message.id === failure.id); const user = [...conversation.messages.slice(0, position)].reverse().find(message => message.role === 'user'); if (!user) return;
     updateConversations(items => items.map(item => item.id !== conversation.id ? item : { ...item, updatedAt: new Date().toISOString(), messages: item.messages.map(message => message.id === failure.id ? { ...message, status: 'sending', error: undefined, content: '' } : message) })); setSending(true); void requestAssistant(conversation.id, user.content, failure.id, user.id, user.attachments);
   };
-  const cancelCurrent = () => { const pending = new Set(requests.current.keys()); analysisJobs.current.forEach(jobId => { void cancelAnalysisJob(jobId).catch(() => undefined); }); analysisJobs.current.clear(); requests.current.forEach(controller => controller.abort()); requests.current.clear(); if (pending.size) updateConversations(items => items.map(item => ({ ...item, messages: item.messages.map(message => pending.has(message.id) && message.status === 'sending' ? { ...message, content: '', status: 'cancelled', error: 'The request was cancelled.' } : message) }))); setSending(false); };
+  const cancelCurrent = () => { const pending = new Set(requests.current.keys()); analysisJobs.current.forEach(jobId => { void cancelAnalysisJob(jobId).catch(() => undefined); }); pendingAnalysisJobsRef.current.forEach(message => { if (message.analysisJobId) void cancelAnalysisJob(message.analysisJobId).catch(() => undefined); }); analysisJobs.current.clear(); requests.current.forEach(controller => controller.abort()); requests.current.clear(); if (pending.size) updateConversations(items => items.map(item => ({ ...item, messages: item.messages.map(message => pending.has(message.id) && message.status === 'sending' ? { ...message, content: '', status: 'cancelled', error: 'The request was cancelled.' } : message) }))); setSending(false); };
   const regenerate = (message: Message) => {
     if (!conversation || sending || message.sources?.length) return; const position = conversation.messages.findIndex(entry => entry.id === message.id); const user = [...conversation.messages.slice(0, position)].reverse().find(entry => entry.role === 'user'); if (!user) return;
     updateConversations(items => items.map(item => item.id !== conversation.id ? item : { ...item, updatedAt: new Date().toISOString(), messages: item.messages.map(entry => entry.id === message.id ? { ...entry, status: 'sending', content: '' } : entry) })); setSending(true); void requestAssistant(conversation.id, user.content, message.id, user.id, user.attachments);

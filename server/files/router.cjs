@@ -284,9 +284,14 @@ async function productionFileHandler(req, res, cfg, providerRequest) {
       const job = await repository.analysisJobForOwner(user.id, jobMatch[1]);
       if (!job) return safeError(res, 404, 'Analysis result not found or unavailable.', origin, cfg);
       if (jobMatch[2] === 'cancel' && req.method === 'POST') {
-        await repository.requestCancelJob(user.id, job.id);
+        const cancelledJob = await repository.requestCancelJob(user.id, job.id);
         activeAnalysisControllers.get(job.id)?.abort();
-        return send(res, 200, { cancelled: true, status: job.status === 'queued' ? 'cancelled' : job.status }, origin, cfg);
+        const request = job.request || {};
+        if (request.conversationId && request.assistantMessageId) {
+          const terminal = cancelledJob?.status === 'cancelled';
+          if (terminal) await repository.updateConversationMessage({ userId: user.id, conversationId: request.conversationId, id: request.assistantMessageId, content: '', status: 'cancelled', metadata: { route: 'file_analysis', analysisJobId: job.id, error: 'The file analysis was cancelled.' } }).catch(() => undefined);
+        }
+        return send(res, 200, { cancelled: true, status: cancelledJob?.status || job.status }, origin, cfg);
       }
       if (!jobMatch[2] && req.method === 'GET') {
         let result;
