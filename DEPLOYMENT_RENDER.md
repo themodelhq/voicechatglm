@@ -8,13 +8,11 @@
 
 A `503` readiness result is diagnostic evidence of an unavailable or incomplete dependency, not a reason to bypass security gates.
 
-For the Hugging Face inference deployment, verify `/api/readiness` reports `model.provider: "huggingface_space"`. A `legacy` value means the API is bypassing the Gradio Space adapter even if the Hugging Face URL and credentials are present.
-
 ## Required Render settings
 
 | Group | Required settings |
 | --- | --- |
-| Model | `VOICECHATGLM_PROVIDER=huggingface_space`, `VOICECHATGLM_API_URL` (the Space `.hf.space` URL), `VOICECHATGLM_API_KEY` (the Space API key), `HF_TOKEN`, pinned Blueprint model ID/revision |
+| Model | `VOICECHATGLM_API_URL`, `VOICECHATGLM_API_KEY`, pinned Blueprint model ID/revision |
 | Browser boundary | exact HTTPS `ALLOWED_ORIGINS` |
 | PostgreSQL/auth | `DATABASE_URL`, 32+ character `SESSION_TOKEN_HASH_SECRET`, expiry/activity/cookie settings |
 | Session topology | `SESSION_DEPLOYMENT_MODE=same-site`, `SESSION_COOKIE_SECURE=true`, `SESSION_COOKIE_SAMESITE=lax` for sibling HTTPS owner domains |
