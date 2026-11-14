@@ -13,4 +13,20 @@ describe('central deterministic intent router', () => {
   it('returns an honest capability-unavailable error rather than silently falling back to ordinary chat', async () => {
     await expect(routeChat({ message: 'Search the web for source-grounded news.', request: { message: 'Search the web for source-grounded news.', max_new_tokens: 256 }, userId: 'owner', repository: {}, callModel: async () => ({ status: 200, body: { response: 'not used' } }), env: { WEB_SEARCH_ENABLED: 'false' } })).rejects.toMatchObject({ code: 'CAPABILITY_UNAVAILABLE', status: 503 });
   });
+
+  it('automatically routes naturally phrased questions about current office holders to live search', () => {
+    expect(classifyIntent('Who is the president of the United States of America?')).toMatchObject({ intent: 'web_search', currentInformation: true });
+    expect(classifyIntent('Who is the current president of Nigeria?')).toMatchObject({ intent: 'web_search', currentInformation: true });
+  });
+  it('automatically routes other time-sensitive questions without an explicit search instruction', () => {
+    expect(classifyIntent('What are the latest developments in the conflict?')).toMatchObject({ intent: 'web_search', currentInformation: true, searchTopic: 'news' });
+    expect(classifyIntent('What is the current exchange rate for USD to NGN?')).toMatchObject({ intent: 'web_search', currentInformation: true });
+    expect(classifyIntent('What is the price of gold?')).toMatchObject({ intent: 'web_search', currentInformation: true });
+    expect(classifyIntent('Did Arsenal win?')).toMatchObject({ intent: 'web_search', currentInformation: true });
+    expect(classifyIntent('Explain electric current in a circuit.').intent).toBe('general_chat');
+  });
+  it('does not silently fall back to stale model knowledge when live search is unavailable for a current question', async () => {
+    await expect(routeChat({ message: 'Who is the president of the United States of America?', request: { message: 'Who is the president of the United States of America?', max_new_tokens: 256 }, userId: 'owner', repository: {}, callModel: async () => ({ status: 200, body: { response: 'stale answer' } }), env: { WEB_SEARCH_ENABLED: 'false' } })).rejects.toMatchObject({ code: 'CAPABILITY_UNAVAILABLE', status: 503 });
+  });
+
 });
