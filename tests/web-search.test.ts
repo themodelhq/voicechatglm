@@ -12,7 +12,7 @@ describe('documented server-side Tavily web search', () => {
       { title: 'Duplicate', url: 'https://example.test/article', content: 'Duplicate evidence' },
       { title: 'Second', url: 'https://other.test/', content: 'Evidence two' },
     ], usage: { credits: 1 } }), { status: 200 }); } });
-    expect(output.provider).toBe('tavily'); expect(output.results).toHaveLength(2); expect(output.results[0].url).toBe('https://example.test/article?utm_source=mail'); expect(output.results[0].publicationDate).toBe('2026-10-10T00:00:00.000Z'); expect(output.usage).toEqual({ credits: 1 }); expect(calls[0].url).toBe('https://api.tavily.com/search'); expect(calls[0].init.headers.Authorization).toBe('Bearer test-server-only-key-value'); expect(JSON.parse(calls[0].init.body)).toMatchObject({ search_depth: 'basic', max_results: 3, include_answer: false, include_raw_content: false });
+    expect(output.provider).toBe('tavily'); expect(output.results).toHaveLength(2); expect(output.results[0].url).toBe('https://example.test/article?utm_source=mail'); expect(output.results[0].publicationDate).toBe('2026-10-10T00:00:00.000Z'); expect(output.usage).toEqual({ credits: 1 }); expect(calls[0].url).toBe('https://api.tavily.com/search'); expect(calls[0].init.headers.Authorization).toBe('Bearer test-server-only-key-value'); expect(JSON.parse(calls[0].init.body)).toMatchObject({ topic: 'general', search_depth: 'basic', max_results: 3, include_answer: false, include_raw_content: false });
   });
   it('fails honestly for disabled, malformed, exhausted-credit, and provider-limit paths', async () => {
     await expect(searchWeb({ query: 'topic', configuration: webSearchConfig({ WEB_SEARCH_ENABLED: 'false' } as NodeJS.ProcessEnv) })).rejects.toMatchObject({ code: 'CAPABILITY_UNAVAILABLE' });
@@ -20,4 +20,13 @@ describe('documented server-side Tavily web search', () => {
     await expect(searchWeb({ query: 'topic', configuration: webSearchConfig(env), fetchImpl: async () => new Response('{}', { status: 402 }) })).rejects.toMatchObject({ code: 'PROVIDER_CREDITS_EXHAUSTED', status: 402 });
     await expect(searchWeb({ query: 'topic', configuration: webSearchConfig(env), fetchImpl: async () => new Response('{}', { status: 429 }) })).rejects.toMatchObject({ code: 'PROVIDER_RATE_LIMIT', status: 429 });
   });
+  it('uses Tavily news topic and advanced depth for current-affairs searches', async () => {
+    let requestBody: any;
+    await searchWeb({ query: 'Has the war between the US and Iran ended?', topic: 'news', configuration: webSearchConfig(env), fetchImpl: async (_url: URL | string, init: any) => {
+      requestBody = JSON.parse(init.body);
+      return new Response(JSON.stringify({ results: [{ title: 'Current report', url: 'https://news.example/report', content: 'Current evidence' }] }), { status: 200 });
+    } });
+    expect(requestBody).toMatchObject({ topic: 'news', search_depth: 'advanced', max_results: 3 });
+  });
+
 });
