@@ -29,4 +29,10 @@ describe('central deterministic intent router', () => {
     await expect(routeChat({ message: 'Who is the president of the United States of America?', request: { message: 'Who is the president of the United States of America?', max_new_tokens: 256 }, userId: 'owner', repository: {}, callModel: async () => ({ status: 200, body: { response: 'stale answer' } }), env: { WEB_SEARCH_ENABLED: 'false' } })).rejects.toMatchObject({ code: 'CAPABILITY_UNAVAILABLE', status: 503 });
   });
 
+  it('automatically searches for changes to ongoing wars and geopolitical situations', () => {
+    expect(classifyIntent('Has the war between the US and Iran ended?')).toMatchObject({ intent: 'web_search', currentInformation: true, searchTopic: 'news' });
+    expect(classifyIntent('Is the conflict in Ukraine still ongoing?')).toMatchObject({ intent: 'web_search', currentInformation: true, searchTopic: 'news' });
+    expect(classifyIntent('Has a ceasefire been reached?')).toMatchObject({ intent: 'web_search', currentInformation: true, searchTopic: 'news' });
+  });
+
 });
