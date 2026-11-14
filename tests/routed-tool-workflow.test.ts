@@ -19,4 +19,23 @@ describe('routed tool execution to grounded model synthesis', () => {
   it('propagates cancellation instead of claiming a partially completed retrieval workflow', async () => {
     const controller = new AbortController(); controller.abort(); await expect(runScrape({ urls: ['https://shop.example/products'], retrievalConfiguration: { enabled: true, configured: true, maxPages: 1, concurrency: 1, timeoutMs: 1000, maxResponseBytes: 1000, maxRedirects: 1, maxLinks: 1, maxText: 1000, robotsPolicy: 'ignore' }, signal: controller.signal })).rejects.toMatchObject({ code: 'CANCELLED' });
   });
+
+  it('forwards current-affairs topic to Tavily advanced news search in research workflows', async () => {
+    const { runResearch } = require('../server/orchestrator.cjs') as typeof import('../server/orchestrator.cjs');
+    const { webSearchConfig } = require('../server/web-search.cjs') as typeof import('../server/web-search.cjs');
+    let requestBody: any;
+    const output = await runResearch({
+      message: 'Has the war between the US and Iran ended?',
+      searchTopic: 'news',
+      searchConfiguration: webSearchConfig({ WEB_SEARCH_ENABLED: 'true', WEB_SEARCH_PROVIDER: 'tavily', WEB_SEARCH_TAVILY_API_KEY: 'test-server-only-key-value' }),
+      retrievalConfiguration: { enabled: false, configured: false },
+      fetchImpl: async (_url: URL | string, init: any) => {
+        requestBody = JSON.parse(init.body);
+        return new Response(JSON.stringify({ results: [{ title: 'Latest report', url: 'https://news.example/latest', content: 'Latest evidence' }] }), { status: 200 });
+      }
+    });
+    expect(requestBody).toMatchObject({ topic: 'news', search_depth: 'advanced' });
+    expect(output.search.results).toHaveLength(1);
+  });
+
 });
