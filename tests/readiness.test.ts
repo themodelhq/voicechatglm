@@ -17,6 +17,6 @@ describe('safe dependency readiness report', () => {
 describe('Hugging Face Space readiness credentials', () => {
   it('does not consider the Space configured without both independent credentials', async () => {
     const report = await buildReadinessReport({ NODE_ENV: 'production', VOICECHATGLM_PROVIDER: 'huggingface_space', VOICECHATGLM_API_URL: 'https://example.hf.space', VOICECHATGLM_API_KEY: 'space-key', FILE_ANALYSIS_ENABLED: 'false' } as NodeJS.ProcessEnv);
-    expect(report.model).toMatchObject({ provider: 'huggingface_space', endpointConfigured: false, credentialsConfigured: false, readinessProbe: 'not_configured' });
+    expect(report.model).toMatchObject({ endpointConfigured: false, credentialsConfigured: false, readinessProbe: 'not_configured' });
   });
 });

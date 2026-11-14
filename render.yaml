@@ -21,7 +21,7 @@ services:
       - key: VOICECHATGLM_API_KEY
         sync: false
       - key: VOICECHATGLM_PROVIDER
-        value: huggingface_space
+        value: legacy
       - key: HF_TOKEN
         sync: false
       - key: RUNPOD_ENDPOINT_ID

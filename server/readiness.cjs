@@ -65,7 +65,7 @@ async function buildReadinessReport(env = process.env) {
     rateLimiter: { configured: !limiter.error, reachability: booleanState(limiterReachable) },
     fileAnalysis: { enabled: fileFeature.enabled, mode: fileFeature.mode, storage: { configured: !storage.error, reachability: storageReachability }, scanner: { configured: !scanner.error, reachability: scannerReachability, signatures: scannerSignatures } },
     ocr: { profile: ocr.profile, enabled: ocr.enabled, disabledByPolicy: ocr.disabledByPolicy, configured: ocr.configured, provider: ocr.provider, readiness: ocrReachability, pdf: { supported: Boolean(ocr.supportsPdf), readiness: pdfOcrReachability, ...(pdfOcrDetail ? { reason: pdfOcrDetail } : {}) }, ...(ocrDetail ? { reason: ocrDetail } : {}) },
-    model: { provider, endpointConfigured, credentialsConfigured, readinessProbe: modelReachability },
+    model: { endpointConfigured, credentialsConfigured, readinessProbe: modelReachability },
   };
   return report;
 }

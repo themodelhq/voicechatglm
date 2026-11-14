@@ -18,14 +18,6 @@ describe('safe backend capability registry', () => {
       expect(capability.blocked).toBe(true);
     }
   });
-  it('does not report research unavailable unconditionally after a successful live workflow', async () => {
-    const env = { NODE_ENV: 'test', WEB_SEARCH_ENABLED: 'true', WEB_SEARCH_PROVIDER: 'tavily', WEB_SEARCH_TAVILY_API_KEY: 'test-server-only-key-value' } as NodeJS.ProcessEnv;
-    const before = await capabilitySnapshot(env);
-    expect(before.capabilities.find(item => item.id === 'research_and_synthesis')).toMatchObject({ implemented: true, enabled: true, available: false });
-    recordCapabilityAvailability('research_and_synthesis', true);
-    const after = await capabilitySnapshot(env);
-    expect(after.capabilities.find(item => item.id === 'research_and_synthesis')).toMatchObject({ implemented: true, enabled: true, available: true });
-  });
   it('only marks runtime tool availability after a successful guarded execution is recorded', async () => {
     recordCapabilityAvailability('web_search', true); const env = { NODE_ENV: 'test', WEB_SEARCH_ENABLED: 'true', WEB_SEARCH_PROVIDER: 'brave', WEB_SEARCH_BRAVE_API_KEY: 'test-server-only-key-value' } as NodeJS.ProcessEnv; const report = await capabilitySnapshot(env); expect(report.capabilities.find(item => item.id === 'web_search')).toMatchObject({ configured: true, enabled: true, available: true });
   });

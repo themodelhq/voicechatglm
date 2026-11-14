@@ -13,36 +13,9 @@ describe('Hugging Face Gradio provider contract', () => {
   it('parses only a non-empty Gradio complete event and rejects error/incomplete payloads', () => {
     const { parseGradioCompletion } = require('../server/proxy-core.cjs');
     expect(parseGradioCompletion('event: complete\ndata: ["generated answer"]\n\n')).toMatchObject({ status: 200, body: { response: 'generated answer', model: 'themodelhq/voicechatglm-qwen3-8b', revision: '9f25d05035bfda0de9b36dfc5911ddcdb378f3c8' } });
-    for (const [event, upstreamCode] of [
-      ['event: error\ndata: "CUDA out of memory"\n\n', 'UPSTREAM_OUT_OF_MEMORY'],
-      ['event: error\ndata: {"error":"Input exceeds maximum sequence length"}\n\n', 'UPSTREAM_INPUT_TOO_LONG'],
-      ['event: error\ndata: "failed"\n\n', 'UPSTREAM_GENERATION_ERROR'],
-      ['event: error\ndata: null\n\n', 'UPSTREAM_GENERATION_ERROR'],
-      ['event: error\ndata: {"detail":{"exception":"CUDA device-side assert"}}\n\n', 'UPSTREAM_GPU_ERROR'],
-      ['event: error\ndata: {"error":"device-api.zero returned 429 Too Many Requests"}\n\n', 'UPSTREAM_RATE_LIMIT'],
-      ['event: error\ndata: {"type":"runtime_failure","data":{"message_text":"CUDA worker allocation failed"}}\n\n', 'UPSTREAM_GPU_ERROR']
-    ]) {
-      try { parseGradioCompletion(event); throw new Error('Expected Gradio error event to throw.'); }
-      catch (error) {
-        expect(error).toMatchObject({ code: 'MODEL_UPSTREAM_ERROR', upstreamCode });
-        if (upstreamCode === 'UPSTREAM_RATE_LIMIT') expect(error.upstreamMessage).toContain('429 Too Many Requests');
-        if (event.includes('data: null')) expect(error.upstreamMessage).toContain('without a usable data payload');
-        if (upstreamCode === 'UPSTREAM_GPU_ERROR') expect(error.upstreamMessage).toContain('CUDA worker allocation failed');
-      }
-    }
+    expect(() => parseGradioCompletion('event: error\ndata: "failed"\n\n')).toThrow();
     expect(() => parseGradioCompletion('event: complete\ndata: [""]\n\n')).toThrow();
     expect(() => parseGradioCompletion('event: heartbeat\ndata: {}\n\n')).toThrow();
-  });
-  it('preserves safe HTTP diagnostics from Hugging Face submission and polling failures', () => {
-    const { safeHuggingFaceHttpDiagnostic } = require('../server/proxy-core.cjs');
-    const response = { status: 429, headers: { get: name => name === 'retry-after' ? '12' : name === 'x-request-id' ? 'hf-request-123' : null } };
-    expect(safeHuggingFaceHttpDiagnostic(response, JSON.stringify({ error: 'device-api.zero returned 429 Too Many Requests' }), 'submission')).toMatchObject({
-      upstream_code: 'UPSTREAM_RATE_LIMIT', upstream_status: 429,
-      upstream_message: expect.stringContaining('429 Too Many Requests'),
-      upstream_request_id: 'hf-request-123', upstream_retry_after: '12'
-    });
-    expect(safeHuggingFaceHttpDiagnostic(response, '<html>private response</html>', 'polling').upstream_message).toContain('HTTP 429');
-    expect(safeHuggingFaceHttpDiagnostic({ status: 403, headers: { get: () => null } }, JSON.stringify({ detail: 'Authorization: Bearer secret-value' }), 'submission').upstream_message).not.toContain('secret-value');
   });
   it('requires both the Space key and HF token for the opt-in provider', () => {
     expect(config({ NODE_ENV: 'test', VOICECHATGLM_PROVIDER: 'huggingface_space', VOICECHATGLM_API_URL: 'https://example.hf.space', VOICECHATGLM_API_KEY: 'space-key' }).error).toBeTruthy();

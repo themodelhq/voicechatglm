@@ -61,9 +61,6 @@ function safeConversationTitle(message) { const clean = String(message || '').re
 function requestedArtifactFormat(message) { const value = String(message || '').toLowerCase(); const explicit = /(give|provide|export|download|deliver|create|make)\b[\s\S]{0,100}\b(pdf|docx|word document|xlsx|excel(?: workbook| sheet)?|powerpoint|pptx|zip|markdown|\.md|csv|json)\b/.test(value); if (!explicit) return undefined; if (/\b(pdf)\b/.test(value)) return 'pdf'; if (/\b(docx|word document)\b/.test(value)) return 'docx'; if (/\b(xlsx|excel(?: workbook| sheet)?)\b/.test(value)) return 'xlsx'; if (/\b(powerpoint|pptx)\b/.test(value)) return 'pptx'; if (/\b(zip)\b/.test(value)) return 'zip'; if (/\b(csv)\b/.test(value)) return 'csv'; if (/\b(json)\b/.test(value)) return 'json'; if (/\b(markdown|\.md)\b/.test(value)) return 'md'; return undefined; }
 function publicArtifactFromRecord(artifact) { return artifact && { id: artifact.id, filename: artifact.displayFilename || artifact.filename, contentType: artifact.contentType, format: artifact.format, size: artifact.size, checksum: artifact.checksum, status: artifact.status, preview: artifact.preview, createdAt: artifact.createdAt, expiresAt: artifact.expiresAt, messageId: artifact.messageId }; }
 function safeUpstreamMessage(status) { if (status === 401 || status === 403) return 'The model service rejected the request.'; if (status === 429) return 'The model service is temporarily busy. Try again shortly.'; if (status >= 500) return 'The model service is unavailable.'; return 'The model request could not be completed.'; }
-function safeDiagnosticCode(value) { return typeof value === 'string' && /^[A-Z0-9_]{1,80}$/.test(value) ? value : undefined; }
-function safeDiagnosticText(value, maximum = 500) { if (typeof value !== 'string' || !value.trim()) return undefined; return value.replace(/https?:\/\/[^\s]+/gi, '[URL]').replace(/\bBearer\s+[A-Za-z0-9._~+_\/-]+=*/gi, 'Bearer [REDACTED]').replace(/(authorization|token|secret|api[_-]?key)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[REDACTED]').replace(/[\r\n\t]+/g, ' ').slice(0, maximum); }
-function upstreamDiagnosticFields(caught) { const code = safeDiagnosticCode(caught?.upstreamCode); const message = safeDiagnosticText(caught?.upstreamMessage); const status = Number.isInteger(caught?.upstreamStatus) && caught.upstreamStatus >= 400 && caught.upstreamStatus < 600 ? caught.upstreamStatus : undefined; return { ...(code ? { upstream_code: code } : {}), ...(message ? { upstream_message: message } : {}), ...(status ? { upstream_status: status } : {}) }; }
 async function upstream(url, key, path, init, timeout, signal) { const controller = new AbortController(); const relayAbort = () => controller.abort(); signal?.addEventListener('abort', relayAbort, { once: true }); const timer = setTimeout(() => controller.abort(), timeout); try { const result = await fetch(`${url}${path}`, { ...init, signal: controller.signal, headers: { 'X-API-Key': key, Accept: 'application/json', ...(init.method === 'POST' ? { 'Content-Type': 'application/json' } : {}) } }); const raw = await result.text(); let body; try { body = raw ? JSON.parse(raw) : {}; } catch { body = {}; } return { status: result.status, body }; } finally { clearTimeout(timer); signal?.removeEventListener('abort', relayAbort); } }
 function runPodConfig(env = process.env) {
   const enabled = String(env.VOICECHATGLM_PROVIDER || '').trim().toLowerCase() === 'runpod';
@@ -107,55 +104,7 @@ function parseGradioCompletion(sse) {
   for (const event of events) {
     const lines = event.split(/\r?\n/);
     if (!lines.some(line => line.trim() === 'event: complete')) {
-      if (lines.some(line => line.trim() === 'event: error')) {
-        const dataLines = lines.filter(line => line.startsWith('data:'));
-        const rawData = dataLines.map(line => line.slice(5).trim()).join('\n');
-        let upstreamText = '';
-        if (rawData) {
-          try {
-            const payload = JSON.parse(rawData);
-            const collect = (value, depth = 0) => {
-              if (depth > 4 || value == null) return [];
-              if (typeof value === 'string') return [value];
-              if (Array.isArray(value)) return value.flatMap(item => collect(item, depth + 1));
-              if (typeof value === 'object') return Object.entries(value)
-                .filter(([key]) => /error|message|detail|reason|exception|traceback|status/i.test(key))
-                .flatMap(([, item]) => collect(item, depth + 1));
-              return [];
-            };
-            upstreamText = collect(payload).join(' ').slice(0, 3000);
-            // Gradio error payloads are not schema-stable. If no conventional
-            // error/message field exists, retain bounded scalar details rather
-            // than reducing a real provider failure to a generic code.
-            if (!upstreamText) {
-              const collectText = (value, depth = 0) => {
-                if (depth > 4 || value == null) return [];
-                if (typeof value === 'string') return [value];
-                if (typeof value === 'number' || typeof value === 'boolean') return [String(value)];
-                if (Array.isArray(value)) return value.flatMap(item => collectText(item, depth + 1));
-                if (typeof value === 'object') return Object.values(value).flatMap(item => collectText(item, depth + 1));
-                return [];
-              };
-              upstreamText = collectText(payload).join(' ').slice(0, 3000);
-            }
-          } catch { upstreamText = rawData.slice(0, 3000); }
-        }
-        const safeUpstreamMessage = upstreamText
-          .replace(/https?:\/\/[^\s]+/gi, '[URL]')
-          .replace(/(authorization|token|secret|api[_-]?key)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[REDACTED]')
-          .replace(/[\r\n\t]+/g, ' ')
-          .slice(0, 500);
-        const normalized = upstreamText.toLowerCase();
-        const upstreamCode = /out of memory|cuda out of memory|memoryerror|cublas.*alloc|resource exhausted/.test(normalized) ? 'UPSTREAM_OUT_OF_MEMORY'
-          : /context length|maximum sequence|too many tokens|input.*too long|sequence length|maximum.*tokens/.test(normalized) ? 'UPSTREAM_INPUT_TOO_LONG'
-          : /model.*(not loaded|loading|unavailable)|failed to load|loading.*model|weights.*not found/.test(normalized) ? 'UPSTREAM_MODEL_NOT_READY'
-          : /timeout|timed out|deadline exceeded/.test(normalized) ? 'UPSTREAM_TIMEOUT'
-          : /rate.?limit|too many requests|429|device-api\.zero|zero.?gpu.*(queue|capacity|limit)/.test(normalized) ? 'UPSTREAM_RATE_LIMIT'
-          : /cuda error|cuda.*(allocation|alloc|worker|failed)|device-side assert|no kernel image|cudnn|nccl|gpu.*(unavailable|failed)/.test(normalized) ? 'UPSTREAM_GPU_ERROR'
-          : /validationerror|invalid.*(input|parameter)|expected.*(string|list|dict)|typeerror|valueerror/.test(normalized) ? 'UPSTREAM_INPUT_VALIDATION'
-          : 'UPSTREAM_GENERATION_ERROR';
-        throw Object.assign(new Error('Hugging Face inference returned an error event.'), { code: 'MODEL_UPSTREAM_ERROR', upstreamCode, upstreamMessage: safeUpstreamMessage || 'Gradio returned event:error without a usable data payload. The Space runtime exception is not included in this SSE response; inspect the Hugging Face Space runtime logs for the matching request time.' });
-      }
+      if (lines.some(line => line.trim() === 'event: error')) throw Object.assign(new Error('Hugging Face inference returned an error event.'), { code: 'MODEL_UPSTREAM_ERROR' });
       continue;
     }
     const dataLine = lines.find(line => line.startsWith('data:'));
@@ -168,43 +117,7 @@ function parseGradioCompletion(sse) {
   }
   throw Object.assign(new Error('Hugging Face inference did not complete its queued event.'), { code: 'MODEL_INCOMPLETE' });
 }
-function safeHuggingFaceHttpDiagnostic(response, raw, stage) {
-  let parsed;
-  try { parsed = raw ? JSON.parse(raw) : {}; } catch { parsed = {}; }
-  const collect = (value, depth = 0) => {
-    if (depth > 4 || value == null) return [];
-    if (typeof value === 'string') return [value];
-    if (Array.isArray(value)) return value.flatMap(item => collect(item, depth + 1));
-    if (typeof value === 'object') return Object.entries(value)
-      .filter(([key]) => /error|message|detail|reason|exception|status/i.test(key))
-      .flatMap(([, item]) => collect(item, depth + 1));
-    return [];
-  };
-  const rawMessage = collect(parsed).join(' ') || (typeof raw === 'string' && !/^\s*</.test(raw) ? raw : '');
-  const safeMessage = rawMessage
-    .replace(/https?:\/\/[^\s]+/gi, '[URL]')
-    .replace(/(authorization|token|secret|api[_-]?key)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[REDACTED]')
-    .replace(/[\r\n\t]+/g, ' ').slice(0, 500);
-  const status = response.status;
-  const upstreamCode = status === 429 ? 'UPSTREAM_RATE_LIMIT'
-    : status === 401 || status === 403 ? 'UPSTREAM_AUTH_ERROR'
-    : status === 408 || status === 504 ? 'UPSTREAM_TIMEOUT'
-    : status >= 500 ? 'UPSTREAM_HTTP_ERROR'
-    : 'UPSTREAM_REQUEST_REJECTED';
-  const requestId = response.headers?.get?.('x-request-id') || response.headers?.get?.('x-amzn-trace-id') || undefined;
-  const retryAfter = response.headers?.get?.('retry-after') || undefined;
-  return {
-    error: stage === 'submission'
-      ? (status === 429 ? 'Hugging Face inference submission was rate-limited.' : 'Hugging Face inference submission was rejected.')
-      : (status === 429 ? 'Hugging Face inference result polling was rate-limited.' : 'Hugging Face inference result retrieval failed.'),
-    upstream_code: upstreamCode,
-    upstream_message: safeMessage || `Hugging Face returned HTTP ${status} during ${stage}.`,
-    upstream_status: status,
-    ...(requestId && /^[A-Za-z0-9._:-]{1,120}$/.test(requestId) ? { upstream_request_id: requestId } : {}),
-    ...(retryAfter && /^[0-9]{1,6}$/.test(retryAfter) ? { upstream_retry_after: retryAfter } : {})
-  };
-}
-async function callHuggingFaceModelOnce(env, path, init, timeout, signal) {
+async function callHuggingFaceModel(env, path, init, timeout, signal) {
   const startedAt = Date.now();
   const remaining = () => Math.max(1, timeout - (Date.now() - startedAt));
   const cfg = await huggingFaceConfig(env);
@@ -224,37 +137,15 @@ async function callHuggingFaceModelOnce(env, path, init, timeout, signal) {
   }, remaining(), signal);
   const submitText = await submitted.text();
   let submitBody; try { submitBody = submitText ? JSON.parse(submitText) : {}; } catch { submitBody = {}; }
-  if (!submitted.ok) return { status: submitted.status, body: safeHuggingFaceHttpDiagnostic(submitted, submitText, 'submission') };
+  if (!submitted.ok) return { status: submitted.status, body: { error: 'Hugging Face inference submission was rejected.' } };
   const eventId = submitBody?.event_id;
   if (typeof eventId !== 'string' || !/^[A-Za-z0-9_-]{8,160}$/.test(eventId)) throw Object.assign(new Error('Hugging Face inference did not return a valid event identifier.'), { code: 'MODEL_INVALID_RESPONSE' });
-  // A result-polling 429 applies to this event ID. Retry the same event rather
-  // than submitting a second generation and consuming another GPU queue slot.
-  const pollDelays = [1000, 2500, 5000];
-  let result;
-  for (let pollAttempt = 0; ; pollAttempt++) {
-    result = await fetchWithTimeout(`${cfg.base}/gradio_api/call/generate/${encodeURIComponent(eventId)}`, {
-      method: 'GET', headers: { ...headers, Accept: 'text/event-stream' }
-    }, remaining(), signal);
-    if (result.status !== 429 || pollAttempt >= pollDelays.length) break;
-    const delay = pollDelays[pollAttempt];
-    if (remaining() <= delay) break;
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(done, delay);
-      function done() { signal?.removeEventListener('abort', abort); resolve(); }
-      function abort() { clearTimeout(timer); signal?.removeEventListener('abort', abort); reject(Object.assign(new Error('The model request was cancelled.'), { code: 'MODEL_CANCELLED' })); }
-      signal?.addEventListener('abort', abort, { once: true });
-    });
-  }
+  const result = await fetchWithTimeout(`${cfg.base}/gradio_api/call/generate/${encodeURIComponent(eventId)}`, {
+    method: 'GET', headers: { ...headers, Accept: 'text/event-stream' }
+  }, remaining(), signal);
   const sse = await result.text();
-  if (!result.ok) return { status: result.status, body: safeHuggingFaceHttpDiagnostic(result, sse, 'polling') };
+  if (!result.ok) return { status: result.status, body: { error: 'Hugging Face inference result retrieval failed.' } };
   return parseGradioCompletion(sse);
-}
-async function callHuggingFaceModel(env, path, init, timeout, signal) {
-  if (signal?.aborted) throw Object.assign(new Error('The model request was cancelled.'), { code: 'MODEL_CANCELLED' });
-  // A 429 is a scheduler/rate-limit rejection, not a transient generation failure.
-  // Polling already retries the same event ID; resubmitting here creates new GPU
-  // scheduling attempts and can worsen quota/run-limit pressure.
-  return callHuggingFaceModelOnce(env, path, init, timeout, signal);
 }
 async function callConfiguredModel(env, path, init, timeout, signal) {
   const provider = String(env.VOICECHATGLM_PROVIDER || 'legacy').trim().toLowerCase();
@@ -353,8 +244,7 @@ async function execute(route, method, body, meta = {}, env = process.env) { cons
       const rawErrorMessage = typeof caught?.message === 'string' ? caught.message : '';
       const safeErrorMessage = rawErrorMessage.replace(/https?:\/\/[^\s]+/gi, '[URL]').replace(/(authorization|token|secret|api[_-]?key)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[REDACTED]').replace(/[\r\n\t]+/g, ' ').slice(0, 240);
       const stackFrames = typeof caught?.stack === 'string' ? caught.stack.split('\n').slice(1, 5).map(line => line.trim().slice(0, 240)) : undefined;
-      const upstreamFields = upstreamDiagnosticFields(caught);
-      const diagnostic = { code: String(code || 'REQUEST_FAILED').slice(0, 80), ...(errorName ? { error_name: errorName } : {}), ...(causeCode ? { cause_code: causeCode } : {}), ...(safeErrorMessage ? { error_message: safeErrorMessage } : {}), ...upstreamFields, ...(failedSources?.length ? { failed_sources: failedSources } : {}) };
+      const diagnostic = { code: String(code || 'REQUEST_FAILED').slice(0, 80), ...(errorName ? { error_name: errorName } : {}), ...(causeCode ? { cause_code: causeCode } : {}), ...(safeErrorMessage ? { error_message: safeErrorMessage } : {}), ...(failedSources?.length ? { failed_sources: failedSources } : {}) };
       if (!code) console.error('[VoiceChatGLM] Unclassified chat failure', { errorName: errorName || 'Error', causeCode: causeCode || undefined, errorMessage: safeErrorMessage || undefined, stackFrames, status: Number.isInteger(status) ? status : undefined });
       return response(Number.isInteger(status) && status >= 400 && status < 600 ? status : code === 'CANCELLED' ? 499 : 502, { error: message, diagnostic }, origin, cfg, caught?.retryAfter ? { 'Retry-After': String(Math.max(1, caught.retryAfter)) } : undefined);
     } finally { await reservation.release?.(); }
@@ -384,4 +274,4 @@ async function nodeHandler(req, res, context = {}) {
   finally { req.removeListener('aborted', abort); res.removeListener('close', responseClosed); }
   if (res.destroyed || res.writableEnded) return; res.writeHead(output.statusCode, output.headers); res.end(output.body);
 }
-module.exports = { MAX_BODY_BYTES, validateChat, execute, executePublicApi, nodeHandler, config, startupConfigurationErrors, nodeRateLimitKey, trustedProxyPeer, validIp, resetRateLimitForTests: resetLimiter, securityHeaders, publicApiResponse, runPodConfig, callConfiguredModel, callHuggingFaceModel, parseGradioCompletion, safeHuggingFaceHttpDiagnostic, safeDiagnosticCode, safeDiagnosticText, upstreamDiagnosticFields };
+module.exports = { MAX_BODY_BYTES, validateChat, execute, executePublicApi, nodeHandler, config, startupConfigurationErrors, nodeRateLimitKey, trustedProxyPeer, validIp, resetRateLimitForTests: resetLimiter, securityHeaders, publicApiResponse, runPodConfig, callConfiguredModel, parseGradioCompletion };
